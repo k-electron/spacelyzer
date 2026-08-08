@@ -51,21 +51,105 @@ nonisolated struct ScanOptions: Sendable {
 ///
 /// Everything here runs off the main actor. Progress is coalesced rather than emitted per file:
 /// a million individual updates would freeze the very interface meant to display them.
+/// Claims stored data the first time it is seen, so bytes reachable through several hard links
+/// are counted once even when the subtrees holding them are walked concurrently (FR-006).
+///
+/// Only consulted for entries reporting more than one link, which is rare, so the cost of the
+/// actor hop is paid on the exception rather than on every file.
+/// Hands out permission to walk a subtree concurrently.
+///
+/// A caller that cannot get a slot walks the subtree inline instead of waiting. Nothing ever
+/// blocks on a permit, so a deep tree cannot deadlock itself by holding slots while its children
+/// ask for more.
+actor ConcurrencyGate {
+    private var inFlight = 0
+    private let limit: Int
+
+    init(limit: Int) { self.limit = limit }
+
+    func tryAcquire() -> Bool {
+        guard inFlight < limit else { return false }
+        inFlight += 1
+        return true
+    }
+
+    func release() { inFlight = max(0, inFlight - 1) }
+}
+
+actor IdentityRegistry {
+    private var seen: Set<FileIdentity> = []
+
+    func claim(_ identity: FileIdentity) -> Bool {
+        seen.insert(identity).inserted
+    }
+}
+
+/// Accumulates progress from every concurrent walker.
+///
+/// Updates are deliberately lossy: the stream buffers only the newest value, so when walkers
+/// outpace the interface the intermediate counts are dropped rather than queued. A backlog of
+/// stale progress helps nobody and costs everybody.
+actor ProgressAccumulator {
+    private var totals = ScanTotals()
+    private var lastEmit: ContinuousClock.Instant = .now
+    private let clock = ContinuousClock()
+    private let interval: Duration
+    private let continuation: AsyncStream<ScanEvent>.Continuation?
+
+    init(interval: Duration, continuation: AsyncStream<ScanEvent>.Continuation?) {
+        self.interval = interval
+        self.continuation = continuation
+    }
+
+    func add(bytes: Int64, items: Int, path: String) {
+        totals.measuredBytes += bytes
+        totals.itemsSeen += items
+        let now = clock.now
+        guard now - lastEmit >= interval else { return }
+        lastEmit = now
+        continuation?.yield(.progress(totals: totals, currentPath: path))
+    }
+
+    func snapshot() -> ScanTotals { totals }
+}
+
 nonisolated struct ScanEngine: Sendable {
     let fileSystem: FileSystemProvider
+    /// Bounds how many directories are walked at once. Unbounded fan-out thrashes on I/O-bound
+    /// work rather than going faster.
+    let maxConcurrency: Int
 
-    init(fileSystem: FileSystemProvider = LiveFileSystem()) {
+    init(
+        fileSystem: FileSystemProvider = LiveFileSystem(),
+        maxConcurrency: Int = max(2, ProcessInfo.processInfo.activeProcessorCount)
+    ) {
         self.fileSystem = fileSystem
+        self.maxConcurrency = maxConcurrency
     }
 
     func scan(root: URL, options: ScanOptions = ScanOptions()) -> AsyncStream<ScanEvent> {
-        AsyncStream { continuation in
+        // Only the newest progress value is kept. Dropping intermediate updates is the point:
+        // the interface only ever needs the latest number.
+        AsyncStream(bufferingPolicy: .bufferingNewest(8)) { continuation in
             let task = Task.detached(priority: .userInitiated) {
-                var context = Context(options: options, fileSystem: fileSystem, continuation: continuation)
-                let rootItem = await context.walk(url: root, isRoot: true)
+                let registry = IdentityRegistry()
+                let progress = ProgressAccumulator(
+                    interval: options.progressInterval,
+                    continuation: continuation
+                )
+                let walker = Walker(
+                    options: options,
+                    fileSystem: fileSystem,
+                    continuation: continuation,
+                    registry: registry,
+                    progress: progress,
+                    gate: ConcurrencyGate(limit: maxConcurrency)
+                )
+                let rootItem = await walker.walk(url: root, isRoot: true)
+                let totals = await progress.snapshot()
                 let event: ScanEvent = Task.isCancelled
-                    ? .cancelled(root: rootItem, totals: context.totals)
-                    : .completed(root: rootItem, totals: context.totals)
+                    ? .cancelled(root: rootItem, totals: totals)
+                    : .completed(root: rootItem, totals: totals)
                 continuation.yield(event)
                 continuation.finish()
             }
@@ -77,145 +161,132 @@ nonisolated struct ScanEngine: Sendable {
     func expandPackage(at url: URL, options: ScanOptions = ScanOptions()) async -> ScannedItem {
         var opened = options
         opened.treatPackagesAsItems = false
-        var context = Context(options: opened, fileSystem: fileSystem, continuation: nil)
-        return await context.walk(url: url, isRoot: true, forceDescend: true)
+        let walker = Walker(
+            options: opened,
+            fileSystem: fileSystem,
+            continuation: nil,
+            registry: IdentityRegistry(),
+            progress: ProgressAccumulator(interval: .seconds(3600), continuation: nil),
+            gate: ConcurrencyGate(limit: maxConcurrency)
+        )
+        return await walker.walk(url: url, isRoot: true, forceDescend: true)
     }
 }
 
-private nonisolated struct Context {
+private nonisolated struct Walker: Sendable {
     let options: ScanOptions
     let fileSystem: FileSystemProvider
     let continuation: AsyncStream<ScanEvent>.Continuation?
+    let registry: IdentityRegistry
+    let progress: ProgressAccumulator
+    let gate: ConcurrencyGate
 
-    var totals = ScanTotals()
-    /// Only holds identities for entries reporting more than one link, so its size tracks a rare
-    /// case rather than the whole scan.
-    var seenIdentities: Set<FileIdentity> = []
-    var lastProgress: ContinuousClock.Instant = .now
-    let clock = ContinuousClock()
-
-    init(options: ScanOptions, fileSystem: FileSystemProvider, continuation: AsyncStream<ScanEvent>.Continuation?) {
-        self.options = options
-        self.fileSystem = fileSystem
-        self.continuation = continuation
+    func walk(url: URL, isRoot: Bool = false, forceDescend: Bool = false) async -> ScannedItem {
+        await walkDirectory(url: url, isRoot: isRoot, forceDescend: forceDescend)
     }
 
-    mutating func walk(url: URL, isRoot: Bool = false, forceDescend: Bool = false) async -> ScannedItem {
+    /// Every directory may fan its subdirectories out concurrently, subject to the gate. A
+    /// subtree that cannot get a slot is walked inline, so parallelism follows wherever the tree
+    /// is actually wide instead of depending on its shape at the root.
+    private func walkDirectory(url: URL, isRoot: Bool = false, forceDescend: Bool = false) async -> ScannedItem {
         let name = isRoot ? url.path : url.lastPathComponent
 
         guard let selfEntry = describe(url: url, name: name) else {
-            return ScannedItem(
-                name: name, kind: .directory, category: .folder, ownSize: 0, cumulativeSize: 0,
-                itemCount: 1, created: .distantPast, modified: .distantPast, accessed: .distantPast,
-                countedElsewhere: false, unreadable: true, hasUnexpandedContents: false, children: []
-            )
+            return unreadableFolder(named: name)
         }
 
-        let isPackageHeldWhole = selfEntry.isPackage && options.treatPackagesAsItems && !forceDescend
-        guard selfEntry.isDirectory, !isPackageHeldWhole else {
-            return leaf(from: selfEntry, kindOverride: isPackageHeldWhole ? .package : nil)
+        let heldWhole = selfEntry.isPackage && options.treatPackagesAsItems && !forceDescend
+        guard selfEntry.isDirectory, !heldWhole else {
+            return await leaf(from: selfEntry, kindOverride: heldWhole ? .package : nil)
         }
 
         // Compared on standardized paths, because a URL built by appending and one produced by
         // enumeration can spell the same location differently.
         if options.excludedPaths.contains(url.standardizedFileURL.path) {
             report(skipped: url.path, reason: .userExcluded)
-            return ScannedItem(
-                name: name, kind: .directory, category: .folder, ownSize: 0, cumulativeSize: 0,
-                itemCount: 1, created: selfEntry.created, modified: selfEntry.modified,
-                accessed: selfEntry.accessed, countedElsewhere: false, unreadable: false,
-                hasUnexpandedContents: false, children: []
-            )
+            return emptyFolder(named: name, from: selfEntry)
         }
 
-        var entries: [FileEntry] = []
+        let entries: [FileEntry]
         do {
-            entries = try fileSystem.contents(of: url)
+            entries = try readEntries(of: url)
         } catch let FileSystemError.unreadable(_, reason) {
             report(skipped: url.path, reason: reason)
-            return ScannedItem(
-                name: name, kind: .directory, category: .folder, ownSize: 0, cumulativeSize: 0,
-                itemCount: 1, created: selfEntry.created, modified: selfEntry.modified,
-                accessed: selfEntry.accessed, countedElsewhere: false, unreadable: true,
-                hasUnexpandedContents: false, children: []
-            )
+            return unreadableFolder(named: name, from: selfEntry)
         } catch {
             report(skipped: url.path, reason: .unreadable)
-            return ScannedItem(
-                name: name, kind: .directory, category: .folder, ownSize: 0, cumulativeSize: 0,
-                itemCount: 1, created: selfEntry.created, modified: selfEntry.modified,
-                accessed: selfEntry.accessed, countedElsewhere: false, unreadable: true,
-                hasUnexpandedContents: false, children: []
-            )
+            return unreadableFolder(named: name, from: selfEntry)
         }
 
-        var children: [ScannedItem] = []
-        children.reserveCapacity(entries.count)
+        var ordered = [ScannedItem?](repeating: nil, count: entries.count)
 
-        for entry in entries {
-            // Cancellation is checked at every directory boundary, which bounds the worst case to
-            // one directory's enumeration and satisfies FR-004's one second.
-            if Task.isCancelled { break }
+        await withTaskGroup(of: (Int, ScannedItem).self) { group in
+            var spawned = 0
 
-            let heldWhole = entry.isDirectory && entry.isPackage && options.treatPackagesAsItems
-            if entry.isDirectory, !heldWhole {
-                children.append(await walk(url: entry.url))
-            } else {
-                // A bundle becomes a single measured item rather than an expanded folder, so it
-                // needs the package kind here as well as on the root path through `walk`.
-                children.append(leaf(from: entry, kindOverride: heldWhole ? .package : nil))
+            for (index, entry) in entries.enumerated() {
+                // Cancellation is checked at every directory boundary, which bounds the worst
+                // case to one directory's enumeration and satisfies FR-004's one second.
+                if Task.isCancelled { break }
+
+                let heldWhole = entry.isDirectory && entry.isPackage && options.treatPackagesAsItems
+                guard entry.isDirectory, !heldWhole else {
+                    ordered[index] = await leaf(from: entry, kindOverride: heldWhole ? .package : nil)
+                    continue
+                }
+
+                if await gate.tryAcquire() {
+                    let target = entry.url
+                    group.addTask {
+                        let item = await walkDirectory(url: target)
+                        await gate.release()
+                        return (index, item)
+                    }
+                    spawned += 1
+                } else {
+                    ordered[index] = await walkDirectory(url: entry.url)
+                }
+            }
+
+            for await (index, item) in group {
+                ordered[index] = item
+                _ = spawned
             }
         }
 
-        var item = ScannedItem(
-            name: name,
-            kind: .directory,
-            category: .folder,
-            ownSize: 0,
-            cumulativeSize: 0,
-            itemCount: 1,
-            created: selfEntry.created,
-            modified: selfEntry.modified,
-            accessed: selfEntry.accessed,
-            countedElsewhere: false,
-            unreadable: false,
-            hasUnexpandedContents: false,
-            children: children
-        )
-        // A folder reports both its own contents and everything beneath it (FR-008).
-        item.cumulativeSize = children.reduce(0) { $0 + $1.cumulativeSize }
-        item.itemCount = children.reduce(1) { $0 + $1.itemCount }
-        emitProgressIfDue(path: url.path)
-        return item
+        // Restored to enumeration order so results do not depend on completion order.
+        let children = ordered.compactMap { $0 }
+        await progress.add(bytes: 0, items: 0, path: url.path)
+        return folder(named: name, from: selfEntry, children: children)
     }
 
-    private mutating func leaf(from entry: FileEntry, kindOverride: NodeKind? = nil) -> ScannedItem {
+    private func readEntries(of url: URL) throws -> [FileEntry] {
+        try fileSystem.contents(of: url)
+    }
+
+    private func leaf(from entry: FileEntry, kindOverride: NodeKind? = nil) async -> ScannedItem {
         var counted = true
 
         if entry.linkCount > 1, let identity = fileSystem.identity(of: entry.url) {
             // Already-counted data still appears at this path, but contributes nothing further.
-            counted = seenIdentities.insert(identity).inserted
+            counted = await registry.claim(identity)
         }
 
-        let kind: NodeKind = kindOverride ?? (entry.isSymlink ? .symlink : (entry.isDirectory ? .directory : .file))
+        let kind: NodeKind = kindOverride
+            ?? (entry.isSymlink ? .symlink : (entry.isDirectory ? .directory : .file))
         // A symlink is recorded but never followed, so it cannot loop or double count (FR-007).
-        let size = (counted && !entry.isSymlink) ? entry.allocatedSize : 0
-
-        totals.measuredBytes += size
-        totals.itemsSeen += 1
-
-        var packageSize = size
+        var size = (counted && !entry.isSymlink) ? entry.allocatedSize : 0
         if kindOverride == .package {
-            packageSize = counted ? directorySize(of: entry.url) : 0
-            totals.measuredBytes += packageSize - size
+            size = counted ? directorySize(of: entry.url) : 0
         }
+
+        await progress.add(bytes: size, items: 1, path: entry.url.path)
 
         return ScannedItem(
             name: entry.name,
             kind: kind,
             category: FileCategory.classify(entry.contentType, isDirectory: entry.isDirectory),
-            ownSize: packageSize,
-            cumulativeSize: packageSize,
+            ownSize: size,
+            cumulativeSize: size,
             itemCount: 1,
             created: entry.created,
             modified: entry.modified,
@@ -236,6 +307,32 @@ private nonisolated struct Context {
             }
             return total + (entry.isSymlink ? 0 : entry.allocatedSize)
         }
+    }
+
+    private func folder(named name: String, from entry: FileEntry, children: [ScannedItem]) -> ScannedItem {
+        var item = emptyFolder(named: name, from: entry)
+        item.children = children
+        // A folder reports both its own contents and everything beneath it (FR-008).
+        item.cumulativeSize = children.reduce(0) { $0 + $1.cumulativeSize }
+        item.itemCount = children.reduce(1) { $0 + $1.itemCount }
+        return item
+    }
+
+    private func emptyFolder(named name: String, from entry: FileEntry) -> ScannedItem {
+        ScannedItem(
+            name: name, kind: .directory, category: .folder, ownSize: 0, cumulativeSize: 0,
+            itemCount: 1, created: entry.created, modified: entry.modified, accessed: entry.accessed,
+            countedElsewhere: false, unreadable: false, hasUnexpandedContents: false, children: []
+        )
+    }
+
+    private func unreadableFolder(named name: String, from entry: FileEntry? = nil) -> ScannedItem {
+        ScannedItem(
+            name: name, kind: .directory, category: .folder, ownSize: 0, cumulativeSize: 0,
+            itemCount: 1, created: entry?.created ?? .distantPast,
+            modified: entry?.modified ?? .distantPast, accessed: entry?.accessed ?? .distantPast,
+            countedElsewhere: false, unreadable: true, hasUnexpandedContents: false, children: []
+        )
     }
 
     private func describe(url: URL, name: String) -> FileEntry? {
@@ -264,13 +361,5 @@ private nonisolated struct Context {
 
     private func report(skipped path: String, reason: SkipReason) {
         continuation?.yield(.skipped(path: path, reason: reason))
-    }
-
-    private mutating func emitProgressIfDue(path: String) {
-        guard let continuation else { return }
-        let now = clock.now
-        guard now - lastProgress >= options.progressInterval else { return }
-        lastProgress = now
-        continuation.yield(.progress(totals: totals, currentPath: path))
     }
 }
