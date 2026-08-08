@@ -39,26 +39,55 @@ struct ScanProgressView: View {
 }
 
 /// Everything the scan could not read, with the reason for each (FR-005).
+///
+/// The list is bounded and scrollable. An earlier version let it grow to the length of the
+/// skipped set, which on a real scan pushed its own toggle off the bottom of the window and made
+/// it impossible to close again.
 struct SkippedLocationsView: View {
     let skipped: [(path: String, reason: SkipReason)]
 
+    @State private var isExpanded = false
+
     var body: some View {
-        DisclosureGroup {
-            ForEach(Array(skipped.enumerated()), id: \.offset) { _, entry in
-                HStack {
-                    Text(entry.path)
-                        .lineLimit(1)
-                        .truncationMode(.middle)
-                        .font(.caption)
-                    Spacer()
-                    Text(entry.reason.label)
-                        .font(.caption)
+        VStack(alignment: .leading, spacing: 6) {
+            Button {
+                withAnimation(.easeInOut(duration: 0.15)) { isExpanded.toggle() }
+            } label: {
+                HStack(spacing: 6) {
+                    Image(systemName: isExpanded ? "chevron.down" : "chevron.right")
+                        .font(.caption2)
                         .foregroundStyle(.secondary)
+                    Label("\(skipped.count) locations skipped", systemImage: "exclamationmark.triangle")
+                        .font(.callout)
+                    Spacer()
                 }
+                .contentShape(.rect)
             }
-        } label: {
-            Label("\(skipped.count) locations skipped", systemImage: "exclamationmark.triangle")
-                .font(.callout)
+            .buttonStyle(.plain)
+            .accessibilityLabel("\(skipped.count) locations skipped")
+            .accessibilityHint(isExpanded ? "Collapses the list" : "Expands the list")
+
+            if isExpanded {
+                ScrollView {
+                    LazyVStack(alignment: .leading, spacing: 2) {
+                        ForEach(Array(skipped.enumerated()), id: \.offset) { _, entry in
+                            HStack {
+                                Text(entry.path)
+                                    .lineLimit(1)
+                                    .truncationMode(.middle)
+                                    .font(.caption)
+                                Spacer(minLength: 12)
+                                Text(entry.reason.label)
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                            }
+                        }
+                    }
+                    .padding(.leading, 18)
+                }
+                // Bounded so the toggle above it always stays reachable.
+                .frame(maxHeight: 160)
+            }
         }
         .padding(.horizontal)
     }
