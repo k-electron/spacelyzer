@@ -1,21 +1,20 @@
 import Foundation
-import SwiftData
 import SwiftUI
 
-/// Drives a scan and turns its value-typed result into `ScanNode` models.
+/// Drives a scan and holds its result.
 ///
-/// The traversal itself runs off the main actor. Importing touches SwiftData, which is main-actor
-/// bound here, so it yields between batches: a single blocking insert pass over a large tree
-/// would freeze the interface that is meant to be showing progress (Principle III).
+/// The result is the value tree the engine produced, used directly by the interface. An earlier
+/// version materialised one SwiftData model per file, which measured between 4.7 and 15 times the
+/// cost of the traversal itself and was the reason a large scan felt frozen. Research R5 records
+/// the measurement.
 @MainActor
 @Observable
 final class ScanController {
     private(set) var state: ScanState = .idle
     private(set) var totals = ScanTotals()
     private(set) var currentPath: String = ""
-    private(set) var rootNode: ScanNode?
+    private(set) var root: ScannedItem?
     private(set) var skipped: [(path: String, reason: SkipReason)] = []
-    private(set) var importedFraction: Double = 0
 
     let activity = ActivityIndicator()
 
@@ -25,23 +24,20 @@ final class ScanController {
     var isRunning: Bool { state == .scanning }
     var resultsAreIncomplete: Bool { state.resultsAreIncomplete }
 
-    func scan(root: URL, excluding exclusions: [URL] = [], in container: ModelContainer, context: ModelContext) {
+    func scan(root url: URL, excluding exclusions: [URL] = []) {
         cancel()
 
         state = .scanning
         totals = ScanTotals()
         skipped = []
-        rootNode = nil
-        importedFraction = 0
-        activity.begin("Measuring \(root.lastPathComponent)")
+        root = nil
+        activity.begin("Measuring \(url.lastPathComponent)")
 
         var options = ScanOptions()
         options.exclude(exclusions)
 
         scanTask = Task { [engine] in
-            var finished: (root: ScannedItem, cancelled: Bool)?
-
-            for await event in engine.scan(root: root, options: options) {
+            for await event in engine.scan(root: url, options: options) {
                 switch event {
                 case let .progress(totals, path):
                     self.totals = totals
@@ -50,29 +46,15 @@ final class ScanController {
                     self.skipped.append((path, reason))
                 case let .completed(item, totals):
                     self.totals = totals
-                    finished = (item, false)
+                    self.root = item
+                    self.state = .completed
                 case let .cancelled(item, totals):
                     self.totals = totals
-                    finished = (item, true)
+                    self.root = item
+                    self.state = .cancelled
                 }
             }
-
-            guard let finished else {
-                self.state = .idle
-                self.activity.end()
-                return
-            }
-
-            // Importing happens on a background context. Only the resulting identifier crosses
-            // back, and the model is then resolved against the main context for display.
-            self.importedFraction = 0.01
-            let importer = ScanImporter(modelContainer: container)
-            if let rootID = try? await importer.importTree(finished.root) {
-                self.rootNode = context.model(for: rootID) as? ScanNode
-            }
-            self.importedFraction = 1
-
-            self.state = finished.cancelled ? .cancelled : .completed
+            if self.state == .scanning { self.state = .idle }
             self.activity.end()
         }
     }
@@ -85,5 +67,4 @@ final class ScanController {
             activity.end()
         }
     }
-
 }

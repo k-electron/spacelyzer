@@ -1,15 +1,15 @@
 import Foundation
 import SwiftData
 
-/// Two configurations in one container.
+/// SwiftData holds the small, long-lived records only: exclusions, recent locations, removal
+/// history, and preferences.
 ///
-/// Scan results are in-memory only. SwiftData persists by default, so without this a complete
-/// index of the user's disk would be written to Application Support and picked up by Time
-/// Machine. Making it in-memory is what enforces the promise that no scan outlives the session,
-/// rather than merely intending it.
+/// Scan results deliberately do not live here. Materialising one model object per file measured
+/// between 4.7 and 15 times the cost of reading the entire filesystem tree, which is recorded in
+/// research R5. Principle V permits the alternative precisely on that evidence. Results now live
+/// as a value tree owned by the scan for the length of the session, which also keeps the promise
+/// that no index of the user's disk is ever written to disk.
 enum Storage {
-    static let scanSchema = Schema([ScanNode.self, Scan.self, SkippedLocation.self])
-
     static let durableSchema = Schema([
         ExclusionRule.self,
         RecentLocation.self,
@@ -18,30 +18,10 @@ enum Storage {
         RemovedItemRecord.self,
     ])
 
-    /// Every model type across both configurations. The container needs one combined schema; the
-    /// configurations then each claim their own subset of it.
-    static let fullSchema = Schema([
-        ScanNode.self,
-        Scan.self,
-        SkippedLocation.self,
-        ExclusionRule.self,
-        RecentLocation.self,
-        Preferences.self,
-        RemovalHistoryEntry.self,
-        RemovedItemRecord.self,
-    ])
-
-    static func makeContainer(inMemoryDurableStore: Bool = false) throws -> ModelContainer {
-        let scan = ModelConfiguration(
-            "Scan",
-            schema: scanSchema,
-            isStoredInMemoryOnly: true
+    static func makeContainer(inMemory: Bool = false) throws -> ModelContainer {
+        try ModelContainer(
+            for: durableSchema,
+            configurations: ModelConfiguration(schema: durableSchema, isStoredInMemoryOnly: inMemory)
         )
-        let durable = ModelConfiguration(
-            "Durable",
-            schema: durableSchema,
-            isStoredInMemoryOnly: inMemoryDurableStore
-        )
-        return try ModelContainer(for: fullSchema, configurations: scan, durable)
     }
 }

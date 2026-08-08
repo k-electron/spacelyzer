@@ -5,7 +5,6 @@ import SwiftUI
 struct ScanProgressView: View {
     let totals: ScanTotals
     let currentPath: String
-    let importedFraction: Double
     let formatter: SizeFormatter
     let onCancel: () -> Void
 
@@ -14,17 +13,13 @@ struct ScanProgressView: View {
             HStack {
                 ProgressView()
                     .controlSize(.small)
-                Text(importedFraction > 0 && importedFraction < 1 ? "Building results" : "Measuring")
+                Text("Measuring")
                     .font(.headline)
                 Spacer()
                 // Cancellation stays reachable throughout; background work must never block its
                 // own cancel control (FR-071).
                 Button("Cancel", action: onCancel)
                     .keyboardShortcut(.cancelAction)
-            }
-
-            if importedFraction > 0, importedFraction < 1 {
-                ProgressView(value: importedFraction)
             }
 
             Text("\(formatter.string(from: totals.measuredBytes)) across \(totals.itemsSeen) items")

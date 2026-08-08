@@ -1,5 +1,4 @@
 import Foundation
-import SwiftData
 import Testing
 @testable import Spacelyzer
 
@@ -27,33 +26,10 @@ struct ScanPerformanceTests {
         }
         let tree = try #require(scanned)
 
-        let container = try ModelContainer(
-            for: Storage.scanSchema,
-            configurations: ModelConfiguration(schema: Storage.scanSchema, isStoredInMemoryOnly: true)
-        )
-        let context = ModelContext(container)
-
-        let importTime = clock.measure {
-            _ = insert(tree, parent: nil, into: context)
-        }
-
-        // The path the app actually takes: a background ModelActor, with only the parent side of
-        // the relationship set.
-        let actorContainer = try ModelContainer(
-            for: Storage.scanSchema,
-            configurations: ModelConfiguration(schema: Storage.scanSchema, isStoredInMemoryOnly: true)
-        )
-        let importer = ScanImporter(modelContainer: actorContainer)
-        let backgroundImportStart = clock.now
-        _ = try await importer.importTree(tree)
-        let backgroundImportTime = clock.now - backgroundImportStart
-
         let report = """
             === SCAN PERFORMANCE (\(tree.itemCount) nodes) ===
-            fixture build      : \(buildTime)
-            traversal          : \(traversalTime)
-            import (main-ish)  : \(importTime)
-            import (ModelActor): \(backgroundImportTime)
+            fixture build : \(buildTime)
+            traversal     : \(traversalTime)
             """
         // Written to a file because xcodebuild does not surface test stdout.
         try? Data(report.utf8).write(to: URL(fileURLWithPath: "/tmp/spacelyzer_perf.txt"))
@@ -61,27 +37,4 @@ struct ScanPerformanceTests {
         #expect(tree.itemCount >= fileCount)
     }
 
-    @discardableResult
-    private func insert(_ item: ScannedItem, parent: ScanNode?, into context: ModelContext) -> ScanNode {
-        let node = ScanNode(
-            name: item.name,
-            kind: item.kind,
-            category: item.category,
-            ownSize: item.ownSize,
-            cumulativeSize: item.cumulativeSize,
-            itemCount: item.itemCount,
-            created: item.created,
-            modified: item.modified,
-            accessed: item.accessed,
-            countedElsewhere: item.countedElsewhere,
-            unreadable: item.unreadable,
-            hasUnexpandedContents: item.hasUnexpandedContents
-        )
-        node.parent = parent
-        context.insert(node)
-        for child in item.children {
-            insert(child, parent: node, into: context)
-        }
-        return node
-    }
 }

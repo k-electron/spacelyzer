@@ -1,5 +1,16 @@
 import Foundation
-import SwiftData
+
+nonisolated enum NodeKind: Int, Codable, Sendable {
+    case file
+    case directory
+    /// An application bundle. Measured whole during the scan and only enumerated if the user
+    /// asks to look inside it (FR-022).
+    case package
+    case symlink
+    /// Synthesised during layout to stand for siblings too small to draw (FR-032). Has no
+    /// filesystem counterpart.
+    case remainder
+}
 
 nonisolated enum ScanState: Int, Codable, Sendable {
     case idle
@@ -42,39 +53,5 @@ nonisolated enum SkipReason: Int, Codable, Sendable {
         case .volumeUnavailable: "Volume unavailable"
         case .userExcluded: "Excluded by you"
         }
-    }
-}
-
-@Model
-final class SkippedLocation {
-    var path: String
-    var reason: SkipReason
-
-    init(path: String, reason: SkipReason) {
-        self.path = path
-        self.reason = reason
-    }
-}
-
-@Model
-final class Scan {
-    var rootPath: String
-    var startedAt: Date
-    var finishedAt: Date?
-    var state: ScanState
-    var measuredTotal: Int64
-
-    @Relationship(deleteRule: .cascade)
-    var root: ScanNode?
-
-    @Relationship(deleteRule: .cascade)
-    var skipped: [SkippedLocation]
-
-    init(rootPath: String, startedAt: Date = .now, state: ScanState = .idle) {
-        self.rootPath = rootPath
-        self.startedAt = startedAt
-        self.state = state
-        self.measuredTotal = 0
-        self.skipped = []
     }
 }

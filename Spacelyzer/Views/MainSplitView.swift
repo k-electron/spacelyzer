@@ -1,11 +1,9 @@
-import SwiftData
 import SwiftUI
 
 /// Hierarchy on the leading side, treemap on the trailing side, with a divider the user can move
 /// (FR-026). The treemap itself arrives in User Story 3; until then the trailing side says so
 /// rather than presenting an unexplained empty pane.
 struct MainSplitView: View {
-    @Environment(\.modelContext) private var modelContext
     @State private var controller = ScanController()
     @State private var broker = AccessBroker()
     @State private var sortOrder: SortOrder = .size
@@ -28,18 +26,17 @@ struct MainSplitView: View {
     @ViewBuilder
     private var leadingPane: some View {
         VStack(spacing: 0) {
-            if controller.isRunning || controller.importedFraction > 0 && controller.importedFraction < 1 {
+            if controller.isRunning {
                 ScanProgressView(
                     totals: controller.totals,
                     currentPath: controller.currentPath,
-                    importedFraction: controller.importedFraction,
                     formatter: formatter,
                     onCancel: { controller.cancel() }
                 )
                 .padding(8)
             }
 
-            if controller.resultsAreIncomplete, controller.rootNode != nil {
+            if controller.resultsAreIncomplete, controller.root != nil {
                 Label("These results are incomplete", systemImage: "exclamationmark.circle")
                     .font(.callout)
                     .foregroundStyle(.orange)
@@ -48,8 +45,8 @@ struct MainSplitView: View {
                     .padding(.bottom, 4)
             }
 
-            if let root = controller.rootNode {
-                HierarchyOutlineView(root: root, formatter: formatter, sortOrder: $sortOrder)
+            if let root = controller.root {
+                HierarchyOutlineView(root: root, formatter: formatter, sortOrder: sortOrder)
             } else if !controller.isRunning {
                 startPane
             } else {
@@ -71,7 +68,7 @@ struct MainSplitView: View {
 
             ForEach(volumes) { volume in
                 Button {
-                    controller.scan(root: volume.url, in: modelContext.container, context: modelContext)
+                    controller.scan(root: volume.url)
                 } label: {
                     HStack {
                         Image(systemName: "internaldrive")
@@ -89,7 +86,7 @@ struct MainSplitView: View {
 
             Button("Choose Folder…") {
                 if let url = broker.chooseFolder() {
-                    controller.scan(root: url, in: modelContext.container, context: modelContext)
+                    controller.scan(root: url)
                 }
             }
             Spacer()
@@ -116,7 +113,7 @@ struct MainSplitView: View {
         ToolbarItem {
             Button {
                 if let url = broker.chooseFolder() {
-                    controller.scan(root: url, in: modelContext.container, context: modelContext)
+                    controller.scan(root: url)
                 }
             } label: {
                 Label("Scan Folder", systemImage: "folder.badge.magnifyingglass")

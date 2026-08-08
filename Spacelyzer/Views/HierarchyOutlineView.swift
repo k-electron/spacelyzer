@@ -1,4 +1,3 @@
-import SwiftData
 import SwiftUI
 
 enum SortOrder: String, CaseIterable, Identifiable {
@@ -9,29 +8,31 @@ enum SortOrder: String, CaseIterable, Identifiable {
 
     var id: String { rawValue }
 
-    func sort(_ nodes: [ScanNode]) -> [ScanNode] {
+    func sort(_ items: [ScannedItem]) -> [ScannedItem] {
         switch self {
-        case .size: nodes.sorted { $0.cumulativeSize > $1.cumulativeSize }
-        case .name: nodes.sorted { $0.name.localizedStandardCompare($1.name) == .orderedAscending }
-        case .itemCount: nodes.sorted { $0.itemCount > $1.itemCount }
-        case .modified: nodes.sorted { $0.modified > $1.modified }
+        case .size: items.sorted { $0.cumulativeSize > $1.cumulativeSize }
+        case .name: items.sorted { $0.name.localizedStandardCompare($1.name) == .orderedAscending }
+        case .itemCount: items.sorted { $0.itemCount > $1.itemCount }
+        case .modified: items.sorted { $0.modified > $1.modified }
         }
     }
 }
 
 /// The expandable hierarchy, largest first by default because the point is finding what is big
-/// (FR-024). Rows are built recursively through `DisclosureGroup` rather than `OutlineGroup` so
-/// the sort order can actually be applied — `OutlineGroup` takes a key path, which cannot see the
-/// current selection of sort.
+/// (FR-024).
+///
+/// Rows use a recursive `DisclosureGroup` rather than `OutlineGroup`, which takes a key path and
+/// therefore cannot see the selected sort order — with it, the sort control would silently do
+/// nothing.
 struct HierarchyOutlineView: View {
-    let root: ScanNode
+    let root: ScannedItem
     let formatter: SizeFormatter
-    @Binding var sortOrder: SortOrder
+    let sortOrder: SortOrder
 
     var body: some View {
         List {
             NodeRow(
-                node: root,
+                item: root,
                 parentTotal: root.cumulativeSize,
                 formatter: formatter,
                 sortOrder: sortOrder,
@@ -43,7 +44,7 @@ struct HierarchyOutlineView: View {
 }
 
 private struct NodeRow: View {
-    let node: ScanNode
+    let item: ScannedItem
     let parentTotal: Int64
     let formatter: SizeFormatter
     let sortOrder: SortOrder
@@ -52,14 +53,16 @@ private struct NodeRow: View {
     @State private var isExpanded = false
 
     var body: some View {
-        if node.children.isEmpty {
+        if item.children.isEmpty {
             label
         } else {
             DisclosureGroup(isExpanded: $isExpanded) {
-                ForEach(sortOrder.sort(node.children), id: \.persistentModelID) { child in
+                // Siblings within a directory always have distinct names, so the name is a valid
+                // identity here and costs nothing to derive.
+                ForEach(sortOrder.sort(item.children), id: \.name) { child in
                     NodeRow(
-                        node: child,
-                        parentTotal: node.cumulativeSize,
+                        item: child,
+                        parentTotal: item.cumulativeSize,
                         formatter: formatter,
                         sortOrder: sortOrder
                     )
@@ -74,33 +77,33 @@ private struct NodeRow: View {
     private var label: some View {
         HStack(spacing: 8) {
             Image(systemName: symbol)
-                .foregroundStyle(node.category.color)
+                .foregroundStyle(item.category.color)
                 .frame(width: 16)
 
-            Text(node.name)
+            Text(item.name)
                 .lineLimit(1)
                 .truncationMode(.middle)
 
             Spacer(minLength: 12)
 
-            if node.countedElsewhere {
+            if item.countedElsewhere {
                 Text("counted elsewhere")
                     .font(.caption2)
                     .foregroundStyle(.secondary)
             }
 
-            if let share = formatter.share(of: node.cumulativeSize, in: parentTotal) {
+            if let share = formatter.share(of: item.cumulativeSize, in: parentTotal) {
                 Text(share)
                     .font(.caption)
                     .foregroundStyle(.secondary)
                     .monospacedDigit()
             }
 
-            Text(formatter.string(from: node.cumulativeSize))
+            Text(formatter.string(from: item.cumulativeSize))
                 .monospacedDigit()
                 .frame(minWidth: 72, alignment: .trailing)
 
-            Text("\(node.itemCount)")
+            Text("\(item.itemCount)")
                 .font(.caption)
                 .foregroundStyle(.tertiary)
                 .monospacedDigit()
@@ -111,7 +114,7 @@ private struct NodeRow: View {
     }
 
     private var symbol: String {
-        switch node.kind {
+        switch item.kind {
         case .directory: "folder"
         case .package: "app.badge"
         case .symlink: "arrow.turn.up.right"
@@ -121,12 +124,12 @@ private struct NodeRow: View {
     }
 
     private var accessibilityDescription: String {
-        var parts = [node.name, formatter.string(from: node.cumulativeSize)]
-        if let share = formatter.share(of: node.cumulativeSize, in: parentTotal) {
+        var parts = [item.name, formatter.string(from: item.cumulativeSize)]
+        if let share = formatter.share(of: item.cumulativeSize, in: parentTotal) {
             parts.append("\(share) of parent")
         }
-        parts.append("\(node.itemCount) items")
-        if node.countedElsewhere {
+        parts.append("\(item.itemCount) items")
+        if item.countedElsewhere {
             parts.append("counted elsewhere")
         }
         return parts.joined(separator: ", ")
