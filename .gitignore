@@ -1,0 +1,47 @@
+# macOS
+.DS_Store
+._*
+.Spotlight-V100
+.Trashes
+.AppleDouble
+.LSOverride
+Icon?
+
+# Xcode — per-user state
+xcuserdata/
+*.xcuserstate
+*.xcscmblueprint
+*.xccheckout
+
+# Xcode — build output
+build/
+DerivedData/
+*.hmap
+*.ipa
+*.dSYM
+*.dSYM.zip
+*.moved-aside
+*.xcarchive
+
+# Swift Package Manager
+# Package.resolved is intentionally tracked: Principle VI requires the adopted
+# dependency versions to be auditable.
+.build/
+.swiftpm/
+Packages/
+
+# Signing material and credentials
+*.p12
+*.pem
+*.key
+*.cer
+*.certSigningRequest
+*.mobileprovision
+*.provisionprofile
+
+# Local configuration
+.env
+.env.*
+!.env.example
+Secrets.swift
+secrets.plist
