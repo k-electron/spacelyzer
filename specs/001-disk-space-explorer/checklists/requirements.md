@@ -48,6 +48,11 @@
 - Constitution alignment. Principle I is carried by FR-067 and FR-068, Principle II by FR-051
   through FR-061, and Principle III by the cancellation and progress obligations in FR-003, FR-004,
   FR-056, and FR-066.
+- Known gap against Principle III, introduced by constitution v1.4.1. The principle now requires
+  every operation still running after roughly 150 milliseconds to show that it is working, and
+  forbids background
+  work from disabling unrelated controls. The spec requires visible progress for scanning and
+  duplicate detection but not for removal, undo, or preview. Recorded as gate item 3 in plan.md.
 - Known gap against Principle V. The constitution requires VoiceOver support, and a treemap is the
   hardest case for a screen reader. This spec states keyboard navigation for the hierarchy in
   FR-025 but specifies no accessible equivalent for the treemap. The Constitution Check during

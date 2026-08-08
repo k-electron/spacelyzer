@@ -34,6 +34,15 @@ struct FilterResult {
   than a flat list of orphans.
 - The same `FilterResult` drives both views. Producing separate results per view would allow them
   to disagree, which FR-042 forbids.
+- Evaluation MUST be invoked off the main actor and its result delivered asynchronously. The
+  function is pure, but purity does not make it cheap: SC-009 budgets 200 ms at a million nodes, so
+  calling it synchronously while the user types would stall the very field they are typing into.
+- A filter change arriving while an evaluation is in flight supersedes it. The superseded run is
+  cancelled and its result discarded rather than delivered late over a newer one.
+- This is the case Principle III's delay-then-show rule exists for. An evaluation still running
+  after roughly 150 milliseconds indicates that filtering is happening; faster ones show nothing,
+  because an indicator blinking on every keystroke is worse than none. Both views stay interactive
+  and keep showing the previous result until the new one arrives.
 
 ---
 
@@ -52,6 +61,8 @@ protocol CategoryAnalyzer {
 - Shares are computed against the total of the nodes considered, so a breakdown of a filtered
   subset sums to 100% of that subset rather than of the whole scan.
 - Nodes flagged `countedElsewhere` contribute zero, preserving the count-once invariant.
+- Computed off the main actor. SC-010's 2 second budget is long enough that the breakdown is
+  requested asynchronously and reports that it is working while the user waits.
 
 ---
 
@@ -82,6 +93,16 @@ protocol TreemapLayoutEngine {
   rectangle (FR-032). A layout that silently omits nodes violates this contract.
 - The engine performs no drawing and imports no view framework, so it is testable by asserting on
   geometry.
+- Layout runs off the main actor and is handed to the view as an immutable snapshot. The canvas
+  draws pre-computed rectangles and never lays out during a draw pass, because laying out a
+  million nodes inside a draw would stall every resize (Principle III).
+- A resize or a drill arriving while a layout is in flight supersedes it, the same way a filter
+  change supersedes an evaluation.
+- While a layout is being computed the previous one stays on screen and stays interactive, with an
+  indication that work is happening. Blanking the view during relayout is a contract violation:
+  it destroys the user's context to show them nothing.
+- Hit testing and hover run against the spatial index of the current snapshot, which is what keeps
+  them inside SC-005's 100 ms independently of how long a layout takes.
 
 ---
 
@@ -115,3 +136,31 @@ protocol SelectionCoordinator: Observable {
   drawn treemap nodes are exposed as accessibility elements whose focus drives the same selection
   (research R7). An implementation that bypasses the coordinator for VoiceOver focus breaks the
   Principle V commitment.
+
+---
+
+## ItemInspector
+
+```swift
+protocol ItemInspector {
+    func details(for id: NodeID, in store: NodeStore) -> ItemDetails
+    func preview(for id: NodeID, in store: NodeStore) async -> PreviewState
+    func reveal(_ id: NodeID, in store: NodeStore)
+    func open(_ id: NodeID, in store: NodeStore)
+}
+
+enum PreviewState { case loading, ready(PreviewContent), unavailable(reason: String) }
+```
+
+**Contract**
+
+- `details` is metadata already held in the node store, so it resolves immediately and must not
+  wait on a preview (FR-048).
+- `preview` is asynchronous and passes through `loading` before reaching a terminal state. SC-011
+  allows up to a second for a 100 MB file, so a preview that has not arrived promptly shows that it
+  is working rather than leaving a blank panel indistinguishable from a file with no preview at
+  all. A preview that resolves quickly goes straight to its result without flashing a placeholder.
+- `unavailable` is a first-class outcome carrying a reason, not an error (FR-050).
+- Changing the selection while a preview is loading supersedes it; a late preview for a
+  deselected item is discarded rather than displayed against the wrong file.
+- Inspection never alters the item's contents or location (FR-049).

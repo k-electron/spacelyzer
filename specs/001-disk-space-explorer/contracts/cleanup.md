@@ -72,6 +72,10 @@ enum RemovalEvent {
 - `.finished` always arrives, including after cancellation, carrying the history entry that records
   what actually happened.
 - Nothing here is ever invoked by scanning, browsing, sorting, filtering, or navigating (FR-058).
+- Progress is shown while a batch runs, and the rest of the interface stays usable. The cancel
+  control in particular must remain reachable throughout, since Principle III forbids background
+  work from blocking its own cancellation. A modal that locks the window until removal finishes
+  violates this.
 
 ---
 
@@ -80,7 +84,13 @@ enum RemovalEvent {
 ```swift
 protocol UndoService {
     func canUndo(_ entry: RemovalHistoryEntry) -> UndoAvailability
-    func undo(_ entry: RemovalHistoryEntry, grant: AccessGrant) async -> UndoOutcome
+    func undo(_ entry: RemovalHistoryEntry, grant: AccessGrant) -> AsyncStream<UndoEvent>
+}
+
+enum UndoEvent {
+    case restored(path: URL)
+    case failed(path: URL, reason: UndoBlocked)
+    case finished(UndoOutcome)
 }
 
 enum UndoAvailability {
@@ -100,6 +110,9 @@ enum UndoAvailability {
   FR-060.
 - After a successful undo the history entry moves to `undone`; after a failed one it moves to
   `unrestorable` with the reason retained.
+- Restoration streams per-item events rather than returning a single value at the end. Moving a
+  large batch out of the Trash can take longer than two seconds, and Principle III requires
+  incremental progress rather than an interface that appears to have stopped.
 
 ---
 

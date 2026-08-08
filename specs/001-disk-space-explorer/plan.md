@@ -50,10 +50,13 @@ propagation within 100 ms (SC-004); treemap interaction within 100 ms at 1,000,0
 filter application within 200 ms at 1,000,000 items (SC-009); category breakdown within 2 seconds
 without rescanning (SC-010); preview within 1 second for files up to 100 MB (SC-011).
 
-**Constraints**: Read access is user-conferred only, never entitlement-granted. No network access
-of any kind. Resident memory to stay under 500 MB for a 1,000,000-item scan, which bounds
-per-node overhead and rules out one object per file. Reported sizes are allocated size, in decimal
-units by default.
+**Constraints**: Nothing whose cost scales with the size of a scan may run on the main actor, which
+puts filtering, treemap layout, and the category breakdown off it despite their being pure
+functions. Any operation still running after roughly 150 milliseconds shows that it is working, and
+anything exceeding two seconds reports incremental progress. Read access is
+user-conferred only, never entitlement-granted. No network access of any kind. Resident memory to
+stay under 500 MB for a 1,000,000-item scan, which bounds per-node overhead and rules out one
+object per file. Reported sizes are allocated size, in decimal units by default.
 
 **Scale/Scope**: 8 prioritized user stories, 68 functional requirements, 16 success criteria.
 Working set up to roughly 1,000,000 nodes per scan.
@@ -66,7 +69,7 @@ Working set up to roughly 1,000,000 nodes per scan.
 |---|---|---|
 | I. Local-First and Private by Default (NON-NEGOTIABLE) | Pass | No network entitlement is declared and no feature requires one. Logging goes through OSLog with paths marked private. Scan data, exclusions, and history never leave the machine. |
 | II. Destructive Actions Are Guarded (NON-NEGOTIABLE) | Pass | Removal is explicit-selection only, previewed before it runs, routed to the Trash by default, refused for protected locations before the confirmation appears, cancellable, and reversible for the most recent batch. |
-| III. Responsive Under Load | Pass | Traversal is off the main actor, cancellation is checked at every directory batch boundary, and progress is coalesced rather than emitted per file. |
+| III. Never Block, Always Show Progress | **Action required** | Traversal, hashing, filtering, layout, and removal all run off the main actor, and scan cancellation is checked at every directory batch boundary. Constitution v1.4.1 broadened this principle to every operation that loads or computes, required visible activity once work passes roughly 150 milliseconds, and forbade disabling unrelated controls; the spec does not yet demand that for removal, undo, or preview. See gate item 3. |
 | IV. Verified Before Merge | Pass | Scan, accounting, layout, filter, and removal-guard logic are unit-testable against fixture trees; no test touches a real home directory. |
 | V. Native and Minimal | **Conditional** | SwiftUI, SwiftData, and zero dependencies satisfy the principle, and the treemap accessibility gap is resolved by research R7. However, using anything other than SwiftData for scan results requires a recorded measurement, which does not yet exist. See Complexity Tracking. |
 | VI. Dependencies Are Open, Proven, and Current | Pass | No third-party dependency is planned. If one is later proposed it must clear this principle before adoption. |
@@ -87,7 +90,16 @@ Working set up to roughly 1,000,000 nodes per scan.
    SC-009, with the result written back into research R5. If SwiftData meets the targets, the
    constitution requires using it.
 
-Neither item is an unjustified violation; both are actions with an owner and a defined closing
+3. **Extend the spec's progress obligations.** Constitution v1.4.1 broadened Principle III from
+   scanning to every operation that loads, computes, or waits, and added two rules the spec does
+   not yet carry: any operation still running after roughly 150 milliseconds must show that it is
+   working, and background work must never disable unrelated controls or block its own
+   cancellation. The spec
+   requires visible progress for scanning (FR-003) and duplicate detection (FR-066) but says
+   nothing for removal, undo, or preview. Add the missing requirements alongside the FR-017
+   amendment so the spec is amended once rather than twice.
+
+None of these is an unjustified violation; each is an action with an owner and a defined closing
 condition. Design proceeded to Phase 1 on that basis.
 
 ### Post-design re-check
@@ -118,8 +130,18 @@ and never inside the workspace, or it would become a large class of generated ou
 repository. The quickstart specifies this, and `.gitignore` is not sufficient protection on its own
 because the fixture would otherwise be created before any ignore rule could be written for it.
 
-The two gate items above remain open. Both are closed by actions scheduled ahead of implementation,
-not by justification.
+Re-checked again against constitution v1.4.1, which broadened Principle III. The design changed as
+a result rather than merely being re-annotated. Three contracts specified work as synchronous pure
+functions whose own budgets are far too large to sit on the main actor — filtering at 200
+milliseconds, the category breakdown at two seconds, and treemap layout at whatever a million
+nodes costs — so all three now run off the main actor, deliver results asynchronously, and are
+superseded rather than queued when newer input arrives. Undo changed from returning a single value
+to streaming per-item events, because restoring a large batch can exceed two seconds. An
+`ItemInspector` contract was added so that preview has an explicit loading state instead of a blank
+panel indistinguishable from a file that cannot be previewed.
+
+The three gate items above remain open. All are closed by actions scheduled ahead of
+implementation, not by justification.
 
 ## Project Structure
 

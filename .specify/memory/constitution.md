@@ -1,16 +1,19 @@
 <!--
 Sync Impact Report
 ==================
-Version change: 1.2.0 -> 1.3.0
-Rationale: MINOR. A new principle was added. No existing principle was removed or redefined
-incompatibly.
+Version change: 1.4.0 -> 1.4.1
+Rationale: PATCH. A refinement of wording within an existing principle, adding no obligation and
+removing none. Visible-activity indication now starts after roughly 150 milliseconds rather than
+immediately, which serves the rule's existing intent instead of changing it.
 
-Modified principles: none
+Modified principles:
+- III. Never Block, Always Show Progress: the indication trigger changed from the moment an
+  operation begins to the moment it has been running for roughly 150 milliseconds. Read
+  literally, the previous wording flashed an indicator on every keystroke for fast-but-variable
+  work such as filtering, which communicates less than showing nothing. The form the indication
+  takes is now explicitly left to judgment at the point of use.
 
-Added sections:
-- VIII. Only Intended Files Are Committed
-- Development Workflow and Quality Gates: a merge gate rejecting generated, machine-specific,
-  and secret-bearing files.
+Added sections: none
 
 Removed sections: none
 
@@ -19,11 +22,18 @@ Deferred items:
   Until it is decided and recorded in Platform and Technology Constraints, no change may
   foreclose either path.
 
-Known violations at time of amendment (remediate outside this document):
-- No root .gitignore exists.
-- Spacelyzer.xcodeproj/xcuserdata/ is tracked and is per-user Xcode state.
+Downstream follow-up (outside this document):
+- specs/001-disk-space-explorer/spec.md requires visible progress for scanning and duplicate
+  detection but not for removal, undo, or preview. Those gaps must be closed to satisfy the
+  broadened Principle III.
 
 Prior history:
+- 1.4.0 (2026-08-08): broadened Principle III from scanning to every operation that loads,
+  computes, or waits, and required background activity to be visible and never to disable
+  unrelated controls or block its own cancellation.
+- 1.3.0 (2026-08-08): added Principle VIII on repository hygiene and committed secrets. The two
+  violations it recorded, a missing root .gitignore and tracked xcuserdata, were remediated in
+  commit d7699ba.
 - 1.2.0 (2026-08-08): added Principle VII requiring documentation, spec artifacts, and this
   document to be updated in the same change as the behavior they describe.
 - 1.1.0 (2026-08-08): added Principle VI requiring open-source, well-maintained dependencies
@@ -67,18 +77,36 @@ than failing silently or partially.
 Rationale: A cleanup tool that removes the wrong thing destroys data the user cannot get back.
 Recoverability and informed consent are far cheaper than any recovery attempt or apology.
 
-### III. Responsive Under Load
+### III. Never Block, Always Show Progress
 
-Filesystem traversal, size computation, and aggregation MUST run off the main actor; the main
-actor is reserved for UI work. Every scan MUST be cancellable, and cancellation MUST take effect
-within one second. Any operation that can exceed two seconds MUST report incremental progress
-rather than showing an indeterminate spinner. Unreadable entries such as permission-denied
-directories and dangling symlinks MUST be skipped and reported in a summary instead of aborting
-the scan. Symlinks and hardlinks MUST NOT be traversed in a way that double-counts bytes or
-creates traversal cycles.
+No operation may block the main actor, which is reserved for rendering and handling input. This
+covers everything that loads, computes, or waits, not scanning alone: filesystem traversal, size
+computation, aggregation, content hashing, duplicate comparison, filtering, layout, preview
+generation, removal, and restoration MUST all run elsewhere.
 
-Rationale: Real home directories hold millions of files. A correct answer that arrives after a
-frozen window is indistinguishable to the user from a crash.
+An operation still running after roughly 150 milliseconds MUST make its activity visible in the
+interface and MUST keep that indication until it finishes. Operations that finish sooner SHOULD
+show nothing: an indicator that appears and vanishes on every keystroke tells the user less than
+no indicator at all. What matters is that nobody is left facing an unchanged interface wondering
+whether the app is working or has stopped; the form the indication takes is a judgment call best
+made where it appears.
+
+Any operation that can exceed two seconds MUST report incremental progress describing what is
+being worked on and how far it has advanced, rather than an indeterminate spinner.
+
+The interface MUST remain interactive while background work runs. Background work MUST NOT disable
+parts of the interface unrelated to it, and MUST NOT prevent the user from cancelling it. Every
+operation for which cancellation is meaningful MUST be cancellable, and cancellation MUST take
+effect within one second.
+
+Unreadable entries such as permission-denied directories and dangling symlinks MUST be skipped and
+reported in a summary instead of aborting the operation. Symlinks and hardlinks MUST NOT be
+traversed in a way that double-counts bytes or creates traversal cycles.
+
+Rationale: Real home directories hold millions of files, and nearly everything this app does waits
+on disk. A correct answer that arrives after a frozen window is indistinguishable from a crash, and
+an app working silently is indistinguishable from one that has given up. Both cost the user the
+same thing, which is any reason to believe the tool is still doing what they asked.
 
 ### IV. Verified Before Merge
 
@@ -235,4 +263,4 @@ feature plan, and the merge gates above. Runtime development guidance for contri
 lives alongside this file under `.specify/`; where that guidance and this constitution disagree,
 this constitution governs.
 
-**Version**: 1.3.0 | **Ratified**: 2026-08-08 | **Last Amended**: 2026-08-08
+**Version**: 1.4.1 | **Ratified**: 2026-08-08 | **Last Amended**: 2026-08-08
