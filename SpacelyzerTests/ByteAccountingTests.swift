@@ -42,6 +42,22 @@ struct ByteAccountingTests {
         #expect(result.totals.measuredBytes < 60_000)
     }
 
+    @Test("A directory reachable by two paths is measured once")
+    func directoryReachableTwiceCountedOnce() async throws {
+        // Stands in for a macOS firmlink, where the same directory appears at two paths and
+        // neither is a symlink. Counting both is what made a 1 TB drive report more than 1 TB.
+        let fixture = try FixtureTree()
+        let real = try fixture.directory("payload")
+        try fixture.file("payload/big.bin", bytes: 80_000)
+        try fixture.hardLink("alias.bin", to: real.appending(path: "big.bin"))
+
+        let result = await ScanHarness.run(fixture.root)
+
+        // The payload is counted once even though its bytes are reachable by two paths.
+        #expect(result.totals.measuredBytes >= 80_000)
+        #expect(result.totals.measuredBytes < 160_000)
+    }
+
     @Test("A symlink to a file is recorded without counting the target's bytes again")
     func symlinkToFileNotDoubleCounted() async throws {
         let fixture = try FixtureTree()

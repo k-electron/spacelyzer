@@ -32,6 +32,8 @@ nonisolated enum FileSystemError: Error {
 nonisolated protocol FileSystemProvider: Sendable {
     func contents(of directory: URL) throws -> [FileEntry]
     func identity(of url: URL) -> FileIdentity?
+    /// The root of the volume containing this item, used to recognise a separate mount.
+    func volumeRoot(of url: URL) -> URL?
 }
 
 nonisolated struct LiveFileSystem: FileSystemProvider {
@@ -95,6 +97,10 @@ nonisolated struct LiveFileSystem: FileSystemProvider {
         if values.isPackage == true { return true }
         guard let type = values.contentType else { return false }
         return type.conforms(to: .package) || type.conforms(to: .bundle)
+    }
+
+    func volumeRoot(of url: URL) -> URL? {
+        try? url.resourceValues(forKeys: [.volumeURLKey]).volume
     }
 
     /// Only consulted for entries reporting more than one link, so its per-file cost is paid on a

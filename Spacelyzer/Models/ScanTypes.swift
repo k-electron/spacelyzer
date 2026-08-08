@@ -45,6 +45,7 @@ nonisolated enum SkipReason: Int, Codable, Sendable {
     case unreadable
     case volumeUnavailable
     case userExcluded
+    case separateVolume
 
     var label: String {
         switch self {
@@ -52,6 +53,7 @@ nonisolated enum SkipReason: Int, Codable, Sendable {
         case .unreadable: "Could not be read"
         case .volumeUnavailable: "Volume unavailable"
         case .userExcluded: "Excluded by you"
+        case .separateVolume: "On a separate volume"
         }
     }
 }

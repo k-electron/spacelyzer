@@ -77,10 +77,19 @@ actor ConcurrencyGate {
 }
 
 actor IdentityRegistry {
-    private var seen: Set<FileIdentity> = []
+    private var seenFiles: Set<FileIdentity> = []
+    private var seenDirectories: Set<FileIdentity> = []
 
     func claim(_ identity: FileIdentity) -> Bool {
-        seen.insert(identity).inserted
+        seenFiles.insert(identity).inserted
+    }
+
+    /// Directories get their own claim, because macOS firmlinks make the same directory reachable
+    /// by two paths that are not symlinks — `/Users` and `/System/Volumes/Data/Users` are the same
+    /// inode. Without this, scanning the startup disk counts most of it twice and reports more
+    /// data than the drive can hold.
+    func claimDirectory(_ identity: FileIdentity) -> Bool {
+        seenDirectories.insert(identity).inserted
     }
 }
 
@@ -205,6 +214,24 @@ private nonisolated struct Walker: Sendable {
         if options.excludedPaths.contains(url.standardizedFileURL.path) {
             report(skipped: url.path, reason: .userExcluded)
             return emptyFolder(named: name, from: selfEntry)
+        }
+
+        // A directory already measured under another path is not measured again. This is what
+        // stops firmlinked locations from being counted twice.
+        if let identity = fileSystem.identity(of: url), await !registry.claimDirectory(identity) {
+            var item = emptyFolder(named: name, from: selfEntry)
+            item.countedElsewhere = true
+            return item
+        }
+
+        // A separate volume mounted inside the tree is not part of this volume's usage. Firmlinked
+        // directories are left alone, because they are not volume roots.
+        if !isRoot, let volumeRoot = fileSystem.volumeRoot(of: url),
+           volumeRoot.standardizedFileURL == url.standardizedFileURL {
+            report(skipped: url.path, reason: .separateVolume)
+            var item = emptyFolder(named: name, from: selfEntry)
+            item.countedElsewhere = true
+            return item
         }
 
         let entries: [FileEntry]
