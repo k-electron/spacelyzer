@@ -71,7 +71,7 @@ struct MainSplitView: View {
 
             ForEach(volumes) { volume in
                 Button {
-                    controller.scan(root: volume.url, into: modelContext)
+                    controller.scan(root: volume.url, in: modelContext.container, context: modelContext)
                 } label: {
                     HStack {
                         Image(systemName: "internaldrive")
@@ -89,7 +89,7 @@ struct MainSplitView: View {
 
             Button("Choose Folder…") {
                 if let url = broker.chooseFolder() {
-                    controller.scan(root: url, into: modelContext)
+                    controller.scan(root: url, in: modelContext.container, context: modelContext)
                 }
             }
             Spacer()
@@ -116,7 +116,7 @@ struct MainSplitView: View {
         ToolbarItem {
             Button {
                 if let url = broker.chooseFolder() {
-                    controller.scan(root: url, into: modelContext)
+                    controller.scan(root: url, in: modelContext.container, context: modelContext)
                 }
             } label: {
                 Label("Scan Folder", systemImage: "folder.badge.magnifyingglass")

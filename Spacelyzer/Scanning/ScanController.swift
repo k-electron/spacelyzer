@@ -25,7 +25,7 @@ final class ScanController {
     var isRunning: Bool { state == .scanning }
     var resultsAreIncomplete: Bool { state.resultsAreIncomplete }
 
-    func scan(root: URL, excluding exclusions: [URL] = [], into context: ModelContext) {
+    func scan(root: URL, excluding exclusions: [URL] = [], in container: ModelContainer, context: ModelContext) {
         cancel()
 
         state = .scanning
@@ -63,7 +63,15 @@ final class ScanController {
                 return
             }
 
-            await self.importTree(finished.root, into: context)
+            // Importing happens on a background context. Only the resulting identifier crosses
+            // back, and the model is then resolved against the main context for display.
+            self.importedFraction = 0.01
+            let importer = ScanImporter(modelContainer: container)
+            if let rootID = try? await importer.importTree(finished.root) {
+                self.rootNode = context.model(for: rootID) as? ScanNode
+            }
+            self.importedFraction = 1
+
             self.state = finished.cancelled ? .cancelled : .completed
             self.activity.end()
         }
@@ -78,46 +86,4 @@ final class ScanController {
         }
     }
 
-    /// Materialises models in batches, yielding so the interface keeps redrawing. This is the
-    /// step most likely to miss the performance targets; research R5 records that risk.
-    private func importTree(_ item: ScannedItem, into context: ModelContext) async {
-        let total = max(1, item.itemCount)
-        var created = 0
-        var pending = 0
-
-        func build(_ source: ScannedItem, parent: ScanNode?) async -> ScanNode {
-            let node = ScanNode(
-                name: source.name,
-                kind: source.kind,
-                category: source.category,
-                ownSize: source.ownSize,
-                cumulativeSize: source.cumulativeSize,
-                itemCount: source.itemCount,
-                created: source.created,
-                modified: source.modified,
-                accessed: source.accessed,
-                countedElsewhere: source.countedElsewhere,
-                unreadable: source.unreadable,
-                hasUnexpandedContents: source.hasUnexpandedContents
-            )
-            node.parent = parent
-            context.insert(node)
-
-            created += 1
-            pending += 1
-            if pending >= 2_000 {
-                pending = 0
-                importedFraction = Double(created) / Double(total)
-                await Task.yield()
-            }
-
-            for child in source.children {
-                node.children.append(await build(child, parent: node))
-            }
-            return node
-        }
-
-        rootNode = await build(item, parent: nil)
-        importedFraction = 1
-    }
 }
