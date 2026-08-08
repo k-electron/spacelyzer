@@ -10,15 +10,18 @@
 Spacelyzer measures a user-chosen folder or volume, presents the result simultaneously as a
 navigable outline and a proportional treemap bound by one shared selection, and lets the user
 narrow, inspect, and safely reclaim what it finds. The technical approach is a bulk-enumerated,
-cancellable, concurrent scan feeding an in-memory node store that both views read from, with
-durable state limited to exclusions, recent locations, and removal history. Everything runs
-locally inside the App Sandbox with no network access and no third-party dependencies.
+cancellable, concurrent scan feeding a SwiftData store that both views read from, configured
+in-memory so results vanish on quit, with durable state limited to exclusions, recent locations,
+and removal history. Everything runs locally with no network access and no third-party
+dependencies.
 
-Two research findings shape the plan. Access to the disk can only be conferred by the user
-selecting a root in an open panel and persisted through a security-scoped bookmark, which means
-the app can never widen its own reach or enumerate volumes on its own. And space held by local
-snapshots cannot be sized from inside the sandbox, which conflicts with a requirement in the spec
-and must be resolved before implementation begins.
+The plan was first written against a sandboxed app and has been revised. Research established that
+the App Sandbox made three requirements unimplementable — the volume picker, direct filesystem
+reach, and any sizing of snapshot space — and constitution v2.0.0 responded by dropping the sandbox
+in favour of Developer ID direct distribution. The app now enumerates volumes itself, reads
+directly, and sizes snapshots through a system tool with a stated fallback. In exchange the
+operating system no longer constrains what it can delete, which makes the removal guards in
+Principle II load-bearing in a way they were not before.
 
 ## Technical Context
 
@@ -30,17 +33,19 @@ recorded in [research.md](./research.md) R8.
 interop, QuickLookUI, UniformTypeIdentifiers, CryptoKit, and OSLog. Zero third-party packages are
 planned, so Principle VI's license, reputation, and version obligations do not yet apply.
 
-**Storage**: SwiftData for durable records only — exclusion rules, recent locations with their
-security-scoped bookmarks, removal history, and preferences. Scan results live in an
-integer-indexed in-memory node store for the session, provisionally and subject to the measurement
-required in research R5.
+**Storage**: SwiftData throughout, in one container with two configurations. Scan results use an
+in-memory-only configuration and vanish on quit; exclusion rules, recent locations, removal
+history, and preferences are written to disk. This follows Principle V's default, so no measurement
+is required.
 
 **Testing**: Swift Testing for unit coverage of traversal, accounting, layout, filtering, duplicate
 grouping, and removal guards, all exercised against temporary fixture trees. XCUITest for the
 primary user flows: scan, select across both views, filter, and a guarded removal with undo.
 
-**Target Platform**: macOS 26.5 and later, built against the macOS SDK. App Sandbox and Hardened
-Runtime enabled in every configuration.
+**Target Platform**: macOS 26.5 and later, built against the macOS SDK. The App Sandbox is
+disabled; Hardened Runtime remains enabled in every configuration, and releases are Developer ID
+signed and notarized. Coverage of privacy-protected locations depends on the user granting Full
+Disk Access.
 
 **Project Type**: Native macOS desktop application, single app target with two test targets.
 
@@ -53,10 +58,11 @@ without rescanning (SC-010); preview within 1 second for files up to 100 MB (SC-
 **Constraints**: Nothing whose cost scales with the size of a scan may run on the main actor, which
 puts filtering, treemap layout, and the category breakdown off it despite their being pure
 functions. Any operation still running after roughly 150 milliseconds shows that it is working, and
-anything exceeding two seconds reports incremental progress. Read access is
-user-conferred only, never entitlement-granted. No network access of any kind. Resident memory to
-stay under 500 MB for a 1,000,000-item scan, which bounds per-node overhead and rules out one
-object per file. Reported sizes are allocated size, in decimal units by default.
+anything exceeding two seconds reports incremental progress. Read access depends on the user
+granting Full Disk Access, never on an entitlement. No network access of any kind. Reported sizes
+are space occupied on disk, in decimal units by default, with logical length shown in item details.
+No memory ceiling is stated: one model object per file rules out the tight bound an earlier draft
+carried, and inventing a looser one would be a number nobody had measured.
 
 **Scale/Scope**: 8 prioritized user stories, 68 functional requirements, 16 success criteria.
 Working set up to roughly 1,000,000 nodes per scan.
@@ -67,37 +73,31 @@ Working set up to roughly 1,000,000 nodes per scan.
 
 | Principle | Status | Basis |
 |---|---|---|
-| I. Local-First and Private by Default (NON-NEGOTIABLE) | Pass | No network entitlement is declared and no feature requires one. Logging goes through OSLog with paths marked private. Scan data, exclusions, and history never leave the machine. |
-| II. Destructive Actions Are Guarded (NON-NEGOTIABLE) | Pass | Removal is explicit-selection only, previewed before it runs, routed to the Trash by default, refused for protected locations before the confirmation appears, cancellable, and reversible for the most recent batch. |
-| III. Never Block, Always Show Progress | **Action required** | Traversal, hashing, filtering, layout, and removal all run off the main actor, and scan cancellation is checked at every directory batch boundary. Constitution v1.4.1 broadened this principle to every operation that loads or computes, required visible activity once work passes roughly 150 milliseconds, and forbade disabling unrelated controls; the spec does not yet demand that for removal, undo, or preview. See gate item 3. |
+| I. Local-First and Private by Default (NON-NEGOTIABLE) | Pass | No feature needs the network, no networking code is planned, and nothing about the user's files leaves the machine. Without the sandbox there is no operating-system enforcement, and v2.1.0 deliberately declined to add build-time policing in its place; this rests on the commitment not to build such a feature. Logging goes through OSLog with paths marked private. |
+| II. Destructive Actions Are Guarded (NON-NEGOTIABLE) | Pass | Removal is explicit-selection only, previewed before it runs, routed to the Trash by default, refused for protected locations before the confirmation appears, cancellable, and reversible for the most recent batch. The guards live in `RemovalGuard` and `DuplicateSet` rather than in any view, satisfying v2.0.0's requirement that no interface change can route around them. |
+| III. Never Block, Always Show Progress | Pass | Traversal, hashing, filtering, layout, and removal all run off the main actor, and scan cancellation is checked at every directory batch boundary. FR-069 through FR-071 now carry the visibility and non-blocking obligations, and SC-017 makes them measurable. |
 | IV. Verified Before Merge | Pass | Scan, accounting, layout, filter, and removal-guard logic are unit-testable against fixture trees; no test touches a real home directory. |
-| V. Native and Minimal | **Conditional** | SwiftUI, SwiftData, and zero dependencies satisfy the principle, and the treemap accessibility gap is resolved by research R7. However, using anything other than SwiftData for scan results requires a recorded measurement, which does not yet exist. See Complexity Tracking. |
+| V. Native and Minimal | Pass | SwiftUI, SwiftData throughout, and zero third-party dependencies. Storage follows the principle's stated default, so no measurement or justification is needed. The treemap accessibility gap is resolved by research R7. |
 | VI. Dependencies Are Open, Proven, and Current | Pass | No third-party dependency is planned. If one is later proposed it must clear this principle before adoption. |
-| VII. Docs and Code Stay in Sync | **Action required** | Two documents will become inaccurate during implementation: FR-017 states a requirement the sandbox cannot satisfy, and the constitution records Swift 5.0 as a project fact that this plan changes. Both must be amended in the change that creates the discrepancy. |
+| VII. Docs and Code Stay in Sync | Pass | The sandbox change was propagated in the same commit as the amendment: build settings, spec, research, contracts, and this plan all moved together. An earlier version of this row claimed the constitution recorded Swift 5.0 as a project fact; it never did, and no amendment is needed when the language mode changes. |
 | VIII. Only Intended Files Are Committed | Pass | The root `.gitignore` already covers macOS, Xcode, build, and credential artifacts, and no new class of generated output is introduced. |
 
 ### Gate items that must close before implementation starts
 
-1. **Amend FR-017** so that space held by local snapshots is not required to be reported as an
-   independently sized category. Research R4 establishes that no public API exposes this from
-   inside the sandbox. The replacement is a named residual for space the app cannot attribute,
-   with an explanation naming its usual contributors, which preserves SC-008's promise that no gap
-   is ever shown without a stated cause. Until this is amended, the spec contains a requirement
-   that cannot be implemented as written.
-2. **Measure before deviating from SwiftData.** Principle V permits an alternative only on recorded
-   measurement. The first implementation task benchmarks a SwiftData-backed store against the
-   in-memory node store on a fixture tree of at least 500,000 nodes, judged against SC-001 and
-   SC-009, with the result written back into research R5. If SwiftData meets the targets, the
-   constitution requires using it.
-
-3. **Extend the spec's progress obligations.** Constitution v1.4.1 broadened Principle III from
-   scanning to every operation that loads, computes, or waits, and added two rules the spec does
-   not yet carry: any operation still running after roughly 150 milliseconds must show that it is
-   working, and background work must never disable unrelated controls or block its own
-   cancellation. The spec
-   requires visible progress for scanning (FR-003) and duplicate detection (FR-066) but says
-   nothing for removal, undo, or preview. Add the missing requirements alongside the FR-017
-   amendment so the spec is amended once rather than twice.
+1. ~~Amend FR-017.~~ **Closed.** Dropping the sandbox made snapshot sizing reachable through
+   `diskutil apfs listSnapshots`. FR-017 keeps its requirement and gains a fallback: where a size
+   cannot be determined the space falls through to the unattributed residual with the reason
+   stated, so SC-008 holds even when the parser breaks.
+2. ~~Measure before deviating from SwiftData.~~ **Closed.** The decision is to use SwiftData
+   throughout, with scan data in an in-memory-only configuration. Following Principle V's default
+   requires no measurement; only deviating did. The performance risk this accepts is recorded in
+   research R5.
+3. ~~Extend the spec's progress obligations.~~ **Closed.** FR-069 through FR-071 and SC-017 now
+   carry the visibility, incremental-progress, and non-blocking rules for removal, restoration,
+   preview, filtering, and the category breakdown.
+4. ~~Build an automated no-network check.~~ **Withdrawn.** Briefly required by v2.0.0 and removed
+   again in v2.1.0. The prohibition on networking code stands; enforcing it with tooling was judged
+   disproportionate for a codebase that has no reason to reach the network and no plans to.
 
 None of these is an unjustified violation; each is an action with an owner and a defined closing
 condition. Design proceeded to Phase 1 on that basis.
@@ -140,8 +140,23 @@ to streaming per-item events, because restoring a large batch can exceed two sec
 `ItemInspector` contract was added so that preview has an explicit loading state instead of a blank
 panel indistinguishable from a file that cannot be previewed.
 
-The three gate items above remain open. All are closed by actions scheduled ahead of
-implementation, not by justification.
+Re-checked a third time against constitution v2.1.0, after the App Sandbox was removed. Snapshot
+sizing became reachable, so FR-017 stands with a fallback rather than being relaxed. Volume
+enumeration became possible, so FR-001 now requires a volume picker instead of an open panel, and
+the `AccessBroker` contract was rewritten accordingly. Principle I did lose its enforcement
+mechanism along the way — an entitlement the app declines to declare means nothing outside a
+sandbox — and the deliberate decision was to accept that rather than replace it with build-time
+policing, on the grounds that the app has no reason to reach the network and no plans to.
+
+The sandbox change was verified against the signed product rather than the build settings: neither
+configuration carries the sandbox entitlement, Hardened Runtime remains on, and both Debug and
+Release build clean.
+
+All four gate items are now closed or withdrawn. The storage question closed by choosing SwiftData
+throughout rather than by measuring an alternative, which is the compliant default and removes the
+custom node store, the hand-rolled filter index, and the benchmark along with it. The performance
+risk that decision accepts is stated in research R5 rather than hidden: a million model objects may
+not reach SC-005 or SC-009, and no revisit trigger is pre-committed. Implementation may begin.
 
 ## Project Structure
 
@@ -168,7 +183,7 @@ specs/001-disk-space-explorer/
 ```text
 Spacelyzer/
 ├── SpacelyzerApp.swift          # App entry point and model container
-├── Access/                      # Open panel, security-scoped bookmarks, access lifetime
+├── Access/                      # Volume enumeration, folder chooser, Full Disk Access state
 ├── Scanning/                    # Enumeration, byte accounting, progress, cancellation
 ├── Accounting/                  # Volume capacity, purgeable space, unattributed residual
 ├── Analysis/                    # Filtering, category breakdown, duplicate detection
@@ -198,8 +213,8 @@ as part of the first implementation task.
 
 ## Complexity Tracking
 
-> Filled because the Constitution Check records one conditional item.
+> Empty. The Constitution Check records no violations to justify.
 
-| Violation | Why Needed | Simpler Alternative Rejected Because |
-|---|---|---|
-| Scan results held in an in-memory node store rather than SwiftData, which Principle V makes the default | The stated targets are 500,000 items measured in under 60 seconds and filters applied over 1,000,000 items within 200 ms. These are in-memory figures. A managed object graph of a million rows with recursive size rollups and per-keystroke predicate evaluation is unlikely to reach them, and one managed object per file also breaches the 500 MB memory constraint. | SwiftData has not been rejected — it has not yet been measured. Principle V permits deviation only on recorded measurement, so the deviation is provisional and the benchmark is the first implementation task. If SwiftData meets SC-001 and SC-009 on a 500,000-node fixture, it is used and this row is withdrawn. |
+The one entry this section previously carried — holding scan results outside SwiftData — was
+withdrawn when the storage decision settled on SwiftData throughout. Following a principle's stated
+default needs no justification, so there is nothing to track here.

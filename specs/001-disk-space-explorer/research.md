@@ -2,7 +2,7 @@
 
 **Date**: 2026-08-08
 **Spec**: [spec.md](./spec.md)
-**Constitution**: [.specify/memory/constitution.md](../../.specify/memory/constitution.md) v1.3.0
+**Constitution**: [.specify/memory/constitution.md](../../.specify/memory/constitution.md) v2.1.0
 
 Every unknown carried into planning is resolved below. Two findings change the shape of the
 design and one conflicts with the specification as written; those are called out explicitly.
@@ -11,33 +11,33 @@ design and one conflicts with the specification as written; those are called out
 
 ## R1. How the app gets permission to read the disk
 
-**Decision**: Access is obtained exclusively through a system open panel in which the user selects
-the folder or volume to scan, and is persisted across launches with an app-scoped security-scoped
-bookmark created with `.withSecurityScope` and `.securityScopeAllowOnlyReadAccess`. The app
-declares `com.apple.security.files.user-selected.read-only`, and requests read-write scope only for
-locations the user has chosen to clean up. Every resolved bookmark is wrapped in a matched
-`startAccessingSecurityScopedResource` / `stopAccessingSecurityScopedResource` pair with `defer`,
-and `isStale` is checked on every resolve and re-saved when set.
+**Decision**: Spacelyzer ships without the App Sandbox, signed with a Developer ID identity,
+Hardened Runtime enabled, and notarized. It enumerates mounted volumes directly and reads through
+ordinary filesystem calls. Locations the system protects by privacy policy — Desktop, Documents,
+Downloads, and similar — become readable once the user grants Full Disk Access in System Settings.
+Until then those locations are reported as skipped, exactly like any other unreadable path.
 
-**Rationale**: The constitution requires App Sandbox to remain enabled in all configurations, and a
-sandboxed app cannot widen its filesystem reach through an entitlement or through code. The only
-mechanism that grants access is a user action — an open panel selection or a drag — which causes
-the system to issue a dynamic sandbox extension to the process. That extension dies with the
-process, so a bookmark is the only way to avoid re-prompting on every launch. Accepting this early
-also keeps the undecided distribution channel open, which the constitution requires.
+**Rationale**: This was originally decided the other way, and the sandbox made three requirements
+unimplementable. A sandboxed app cannot enumerate volumes, so FR-001's volume picker was impossible
+and the user had to select a root in an open panel. It cannot reach the filesystem except through
+locations conferred by a user selection, so every scan began with a file chooser. And it cannot see
+snapshot space at all, so FR-017 could not be satisfied. Constitution v2.0.0 removed the sandbox
+requirement and closed the distribution question in favour of direct download, which resolves all
+three.
 
-**Consequences worth stating plainly**: To scan an entire volume the user must select that volume's
-root in the open panel. The app cannot present its own volume list and start scanning from it, and
-it cannot silently widen its own access. Full Disk Access is a separate, user-granted privilege in
-System Settings that the app must never demand and, for a sandboxed build, must not depend on;
-App Store review reacts badly to apps that require it. The design therefore treats broad access as
-something the user confers by choosing a root, not as a precondition.
+**Consequences worth stating plainly**: Full Disk Access cannot be requested programmatically. The
+user grants it in System Settings and the app usually needs relaunching for it to take effect,
+which makes FR-018 and FR-019 genuine onboarding rather than edge cases. The app must remain useful
+without it. Losing the sandbox also removes the operating system as a limit on what the app can
+delete, which is why constitution v2.0.0 amended Principle II to state that the removal guards are
+now the only barrier, and Principle I to enforce the no-network guarantee by inspecting the binary
+rather than by declaring an entitlement.
 
-**Alternatives considered**: Shipping unsandboxed with Full Disk Access would allow enumerating
-volumes directly, but it violates the constitution's sandbox requirement and forecloses App Store
-distribution while that decision is still open. A privileged helper tool was rejected because it
-does not reliably inherit the privacy privileges it would need and adds a large security surface
-for a read-mostly utility.
+**Alternatives considered**: Staying sandboxed was the prior decision and is documented above as
+rejected. Security-scoped bookmarks are no longer required for access, though the same API remains
+a reasonable way to record recent locations durably. A privileged helper tool is unnecessary now
+that the main executable can read directly, and would add a large security surface for a
+read-mostly utility.
 
 ---
 
@@ -46,8 +46,9 @@ for a read-mostly utility.
 **Decision**: Use `FileManager.enumerator(at:includingPropertiesForKeys:options:errorHandler:)`
 with an explicit, minimal set of resource keys prefetched in the same call, an `errorHandler` that
 records unreadable entries and returns `true` to continue, and an `autoreleasepool` around each
-batch. Use `skipDescendants()` to implement user exclusions, and `.skipsPackageDescendants` to
-present application bundles as single items.
+batch. Use `skipDescendants()` to implement user exclusions, and `.skipsPackageDescendants` during the
+main pass so application bundles are measured as single items. A bundle the user chooses to open is
+then enumerated on demand as a separate targeted pass and spliced into the store.
 
 **Rationale**: The URL-based enumerator is built on the same bulk kernel interface as
 `getattrlistbulk`, so it makes one system call per batch of entries rather than one `stat` per
@@ -100,53 +101,65 @@ CacheDelete subsystem rather than from APFS directly, which is why they disagree
 cached values. Available capacity already includes purgeable space, so subtracting gives the
 purgeable figure without a private interface.
 
-**Conflict with the specification**: FR-017 requires naming space held by system snapshots as a
-distinct category *with its size*. This is not achievable from within the App Sandbox. Local
-snapshot inventory is available through `tmutil`, which a sandboxed app cannot invoke, and there is
-no public API exposing per-snapshot sizes. Snapshots also count as used space rather than purgeable
-space, so they do not appear in the purgeable figure either. In an APFS container, space consumed
-by sibling volumes is likewise invisible.
+**Snapshot sizing**: Now that the app runs unsandboxed it can size snapshots, but only through a
+command-line tool. `tmutil listlocalsnapshots` enumerates snapshots without sizes. The underlying
+`fs_snapshot_*` calls are gated behind an Apple-only entitlement. `diskutil apfs listSnapshots`
+does report sizes, and it is the same source Disk Utility presents as "Private Size" — the space
+unique to a snapshot, which approximates what deleting it would return.
 
-**Resolution proposed**: Relax FR-017 so that snapshots are not required to be an independently
-sized category. Report instead a named residual — space present on the volume that this app cannot
-see — accompanied by a plain-language explanation naming its usual contributors: local snapshots,
-other volumes sharing the container, and cloned blocks counted once by the filesystem. SC-007's 1%
-reconciliation target then applies to the whole accounting including that residual, which keeps the
-user-facing promise in SC-008 intact: no gap is ever shown without a stated cause. **This requires
-a spec amendment before implementation and is recorded as a gate item in plan.md.**
+**Decision on snapshots**: Size them via `diskutil apfs listSnapshots`, isolated behind a single
+interface as the constitution's platform constraints require, treating its output as untrusted and
+changeable. Report each snapshot's private size. When the tool is unavailable, its output does not
+parse, or a size cannot be derived, that space falls through to the unattributed residual with the
+reason stated rather than being reported as zero.
 
-**Alternatives considered**: Shelling out to `tmutil` is impossible under sandbox. Dropping the
-sandbox to gain snapshot visibility trades a constitutional requirement for one reporting line and
-was rejected. Silently folding snapshots into the residual without naming them would violate
-FR-016 and SC-008.
+**Rationale**: Snapshots are among the most common reasons a Mac reports far more used space than
+its files account for, which is the exact confusion this app exists to resolve, so the capability
+is worth a fragile dependency. But it is genuinely fragile: this is human-readable output from a
+tool Apple can change in any release without breaking anything it considers an API. The fallback is
+therefore not a nicety. SC-008 requires that no gap is ever shown without a stated cause, and that
+promise has to survive the parser breaking.
+
+**A caveat to carry into the interface**: a snapshot's size is not a fixed property. Snapshots
+share blocks with the live filesystem, so the space unique to one grows as the live volume diverges
+from it. Two readings taken days apart will legitimately differ, and the number should be presented
+as a current estimate rather than as a fact about the snapshot.
+
+**Alternatives considered**: Relaxing FR-017 to a residual only was the plan while the sandbox
+stood, and is now unnecessary. Silently folding snapshots into the residual without naming them
+would violate FR-016 and SC-008.
 
 ---
 
 ## R5. Where scan results live
 
-**Decision**: Hold the scanned tree in memory for the duration of a session as a compact value-type
-structure in contiguous storage, indexed by integer node identifiers rather than object references.
-Use SwiftData only for small durable records: exclusion rules, recently scanned locations with
-their bookmarks, removal history, and preferences. **This deviation from SwiftData for scan results
-is provisional and must be validated by measurement before it is treated as settled.**
+**Decision**: SwiftData for everything, in one container with two configurations. Scan results use
+a configuration created with `isStoredInMemoryOnly: true`; exclusion rules, recent locations,
+removal history, and preferences use an on-disk configuration.
 
-**Rationale**: The constitution requires SwiftData for persistence unless a recorded measurement
-shows it cannot meet a stated requirement. The stated requirements here are severe: 500,000 items
-measured in under 60 seconds, filters applied across 1,000,000 items in under 200 milliseconds, and
-a treemap that stays responsive at that scale. Those are in-memory numbers. A managed object graph
-with a million rows, recursive size rollups, and predicate evaluation per filter keystroke is very
-unlikely to reach them. An integer-indexed array of nodes also makes the parent and child links
-cheap and keeps per-node overhead to tens of bytes.
+**Rationale**: SwiftData is Principle V's stated default, and following the default requires no
+measurement or justification — only deviating does. It is also the least code: no custom store to
+write, test, and maintain, no hand-rolled index, and one persistence framework rather than two.
+The in-memory configuration for scan data is what keeps a full index of the user's disk from
+outliving the session, since SwiftData otherwise writes to Application Support, which Time Machine
+backs up.
 
-**Obligation this creates**: Per Principle V the measurement must actually be taken and recorded,
-not assumed. The first implementation task is a benchmark comparing both storage approaches on a
-fixture tree of at least 500,000 nodes against SC-001 and SC-009. If SwiftData meets the targets,
-the constitution requires using it. The result is recorded in this file.
+**The risk being accepted, stated plainly**: a million managed objects with recursive size rollups
+and predicate evaluation on every filter keystroke may not reach SC-005's interactive treemap or
+SC-009's 200 millisecond filter, and the memory footprint of a million model objects is far above
+what a compact array layout would use. This was a deliberate choice to build the simple thing first
+and find out, rather than to optimise against an unmeasured fear. No revisit trigger is
+pre-committed; if it turns out slow in practice, the storage decision is reopened then.
 
-**Alternatives considered**: Persisting completed scans to disk for later reload was rejected for
-this feature because comparison between scans is explicitly out of scope, which removes the main
-reason to keep them. A memory-mapped custom file format is a possible future optimisation and is
-premature now.
+**Alternatives considered and rejected.** An integer-indexed in-memory node store using parallel
+arrays would cut per-node overhead to tens of bytes and make aggregation cache-friendly, but it is
+a custom store to maintain and Principle V would have required measuring before adopting it. A
+memory-mapped file of that same layout under `~/Library/Caches` was the strongest option on the
+merits — near-memory access speed, the kernel's page cache handling memory pressure, and
+persistence essentially free, which would also have made comparison between scans cheap — but it
+carries the same custom-format maintenance cost. Both remain available if SwiftData proves
+inadequate; the mmap route in particular is the natural next step rather than a rewrite, since the
+node layout it needs is straightforward to produce.
 
 ---
 
@@ -262,8 +275,8 @@ proportion to the spec, which requires undo of the most recent batch only.
 Reveal with `NSWorkspace.activateFileViewerSelecting`. Open with `NSWorkspace.open`. When Quick
 Look reports no available preview, show an explanatory placeholder carrying the item's metadata.
 
-**Rationale**: All three are platform capabilities that function inside the sandbox for URLs the
-user has already granted, so they add no entitlement surface and no dependency. Quick Look
+**Rationale**: All three are platform capabilities requiring no entitlement and no dependency.
+Quick Look
 generates previews out of process, so a malformed file cannot take the app down with it, which
 matters when previewing arbitrary content found on someone's disk.
 
@@ -273,6 +286,7 @@ matters when previewing arbitrary content found on someone's disk.
 
 | Item | Follow-up required |
 |---|---|
-| R4 snapshot sizing | Amend FR-017 before implementation; residual category replaces sized snapshots |
-| R5 scan storage | Benchmark SwiftData against in-memory on 500,000 nodes; record result here |
-| R8 Swift 6 mode | Change `SWIFT_VERSION` in build settings, which amends a fact stated in the constitution |
+| R1 access model | Closed. Constitution v2.0.0 dropped the sandbox; build settings updated to match |
+| R4 snapshot sizing | Closed. FR-017 amended with a fallback to the residual when sizing fails |
+| R5 scan storage | Closed. SwiftData throughout, scan data in-memory-only; no benchmark required to follow the default |
+| R8 Swift 6 mode | Open. Change `SWIFT_VERSION` from 5.0 in build settings during implementation |

@@ -4,7 +4,8 @@
 
 Interfaces between the node store and the two views. Everything here is a pure function of the
 store plus a small amount of state, which is what allows layout and filtering to be unit-tested
-with no interface running.
+with no interface running. Shared types are defined at the top of
+[scanning.md](./scanning.md).
 
 ---
 
@@ -16,7 +17,7 @@ protocol FilterEvaluator {
 }
 
 struct FilterResult {
-    let matches: NodeBitmap
+    let matches: NodeSet
     let matchCount: Int
     let combinedSize: Int64
 }
@@ -26,8 +27,9 @@ struct FilterResult {
 
 - Evaluation never rescans and never touches the filesystem (FR-037, and the assumption that
   filtering works on results already in memory).
-- The result is a bitmap over `NodeID`, not a list of nodes, so the treemap can test membership in
-  constant time while drawing and so re-evaluation stays inside SC-009's 200 ms at a million nodes.
+- The result is a set of identifiers rather than a list of node objects, so the treemap can test
+  membership cheaply while drawing without holding a second copy of the tree. Whether this reaches
+  SC-009's 200 ms at a million nodes is the open performance question recorded in research R5.
 - An empty filter matches every node. Conditions combine conjunctively.
 - A directory matches if it satisfies the conditions itself; it is additionally retained for
   structure when any descendant matches, so the outline can still show the path to a match rather
@@ -50,7 +52,7 @@ struct FilterResult {
 
 ```swift
 protocol CategoryAnalyzer {
-    func breakdown(of store: NodeStore, matching: NodeBitmap?) -> [CategoryTotal]
+    func breakdown(of store: NodeStore, matching: NodeSet?) -> [CategoryTotal]
 }
 ```
 
@@ -154,8 +156,10 @@ enum PreviewState { case loading, ready(PreviewContent), unavailable(reason: Str
 
 **Contract**
 
-- `details` is metadata already held in the node store, so it resolves immediately and must not
-  wait on a preview (FR-048).
+- `details` resolves from the node store plus a single filesystem read for the item's logical
+  length, which is not stored per node. It must not wait on a preview (FR-048).
+- Both the occupied and logical sizes are shown whenever they differ, so a sparse or compressed
+  file reads as explicable rather than as a bug in the scanner.
 - `preview` is asynchronous and passes through `loading` before reaching a terminal state. SC-011
   allows up to a second for a 100 MB file, so a preview that has not arrived promptly shows that it
   is working rather than leaving a blank panel indistinguishable from a file with no preview at

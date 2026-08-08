@@ -3,30 +3,33 @@
 **Date**: 2026-08-08
 **Spec**: [spec.md](./spec.md) | **Research**: [research.md](./research.md)
 
-The model splits along a hard line. Session data describes one scan, can reach a million nodes, is
-never written to disk, and is optimised for traversal and aggregation. Durable data is small,
-long-lived, and belongs in SwiftData. Nothing about a user's files is durable except the paths they
-themselves chose to remember.
+Everything is SwiftData, in one container with two configurations. Scan data is configured
+in-memory-only: it describes one scan, can reach a million nodes, and vanishes on quit. Durable
+data is small, long-lived, and written to disk. Nothing about a user's files is durable except the
+paths they themselves chose to remember.
+
+That split is deliberate rather than incidental. SwiftData persists by default, so scan results
+would otherwise land in Application Support and be picked up by Time Machine; the in-memory
+configuration is what keeps a complete index of someone's disk from outliving the session.
 
 ---
 
-## Session data (in memory)
+## Scan data (SwiftData, in-memory configuration)
 
-### NodeStore
+SwiftData is used throughout, which is Principle V's default and therefore needs no justification.
+Scan results live in a model configuration created with `isStoredInMemoryOnly: true`, so they exist
+for the session and disappear when the app quits. Durable records use a second, on-disk
+configuration in the same container.
 
-The scanned tree, stored as parallel arrays indexed by a 32-bit `NodeID` rather than as linked
-objects. One object per file would breach the 500 MB memory constraint at a million items and would
-make aggregation chase pointers across the heap.
+### ScanNode
 
-Children of a node occupy a contiguous index range, which is possible because children are appended
-together when their parent's directory is enumerated. Traversal of a subtree is therefore a range
-scan rather than a pointer walk, and the treemap's per-frame work stays cache-friendly.
+One model object per file or folder found by a scan.
 
 | Field | Type | Meaning |
 |---|---|---|
-| `parent` | `NodeID?` | Absent only for the scan root |
-| `childRange` | `Range<NodeID>` | Empty for leaves |
-| `nameRef` | `StringRef` | Index into an interned name table; paths are reconstructed by walking parents |
+| `parent` | `ScanNode?` | Absent only for the scan root |
+| `children` | `[ScanNode]` | Empty for leaves |
+| `name` | `String` | Paths are reconstructed by walking parents rather than stored per node |
 | `kind` | `Kind` | `file`, `directory`, `package`, `symlink`, or `remainder` |
 | `category` | `Category` | Derived once from the item's type identifier |
 | `ownSize` | `Int64` | Allocated size of the item itself, zero for directories |
@@ -43,7 +46,12 @@ scan rather than a pointer walk, and the treemap's per-frame work stays cache-fr
 - A `symlink` node never has children (FR-007).
 - A `remainder` node has no filesystem counterpart. It exists only in a layout to represent
   siblings too small to draw and carries their combined size and count (FR-032).
-- Names are interned. Path strings are never stored per node.
+- Full path strings are never stored per node; they are reconstructed by walking parents.
+- Logical file length is deliberately absent. It is needed only for the single item being
+  inspected, so `ItemInspector` reads it on demand rather than carrying a second size on every node.
+- A node of kind `package` is a leaf until the user opens it. Its `cumulativeSize` is measured
+  during the scan, but its children are not enumerated until requested, at which point the subtree
+  is scanned on demand and spliced in.
 
 ### Scan
 
@@ -74,10 +82,12 @@ the difference between the last two, per research R4.
 
 `UnaccountedEntry` is one named cause with a size, and the list of them is what makes SC-008
 enforceable: the reconciliation is only complete when measured total plus every entry equals the
-volume's used space. Causes are `permissionDenied`, `userExcluded`, `purgeable`, and
-`unattributed`. The last carries an explanation naming its usual contributors — local snapshots,
-sibling volumes in the same container, and cloned blocks — because research R4 established that
-those cannot be sized individually from inside the sandbox.
+volume's used space. Causes are `permissionDenied`, `userExcluded`, `purgeable`, `snapshots`, and
+`unattributed`. Snapshots are sized individually per research R4 and carry the caveat that the
+figure is a current estimate rather than a fixed property. The `unattributed` entry absorbs what is
+left — sibling volumes sharing the container, cloned blocks, and any snapshot whose size could not
+be read — and carries an explanation naming those contributors, so a failure to size something
+never becomes a silent gap.
 
 ### Selection
 
@@ -101,9 +111,10 @@ The active narrowing, applied to both views at once (FR-042).
 | `modifiedRange` | `ClosedRange<Date>?` | FR-040 |
 
 Filters combine conjunctively, and an empty filter matches everything. Evaluation produces a
-`FilterResult` holding a bitmap over `NodeID` plus the match count and combined size required by
-FR-043. A bitmap rather than a node list is what keeps re-evaluation within SC-009's 200 ms at a
-million nodes, and lets the treemap test membership in constant time while drawing.
+`FilterResult` holding a set of matching node identifiers plus the match count and combined size
+required by FR-043. Carrying identifiers rather than node objects lets the treemap test membership
+while drawing without materialising a second copy of the tree. Whether it lands inside SC-009's
+200 ms at a million nodes is the performance question left open in research R5.
 
 ### CategoryBreakdown
 
@@ -129,7 +140,7 @@ same data always produces the same picture (research R6).
 
 ---
 
-## Durable data (SwiftData)
+## Durable data (SwiftData, on-disk configuration)
 
 Four small record types. None of them stores a scan.
 
@@ -143,7 +154,7 @@ the current scan root (FR-012). Adding or removing a rule marks any existing sca
 
 A previously scanned root: `bookmark`, `displayPath`, `lastScannedAt`, and `lastMeasuredTotal` for
 display before a rescan completes. The bookmark is what makes FR-009's "return to recent locations
-without navigating to them again" possible at all, since the sandbox grants no standing access.
+without navigating to them again" convenient, and survives the folder being renamed or moved.
 Resolution checks `isStale` and re-saves, and a location whose volume is absent is shown as
 unavailable rather than being deleted.
 
@@ -168,10 +179,10 @@ is what makes a permanent deletion honestly reportable as unrestorable rather th
 
 ## What is deliberately absent
 
-No scan is persisted. Comparison between scans is out of scope in the spec, which removes the only
-reason to keep one, and persisting a full index of someone's disk would create the single most
-sensitive artifact this app could hold — exactly what Principle I exists to prevent. Recent
-locations store a bookmark and a total, not contents.
+No scan is persisted, which the in-memory configuration enforces rather than merely intends.
+Comparison between scans is out of scope in the spec, removing the only reason to keep one, and a
+stored index of someone's entire disk is an artifact worth not creating by default. Recent
+locations store a reference and a total, not contents.
 
 No file contents are retained. Duplicate detection streams and hashes, and preview is rendered out
 of process by Quick Look.

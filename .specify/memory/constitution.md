@@ -1,33 +1,32 @@
 <!--
 Sync Impact Report
 ==================
-Version change: 1.4.0 -> 1.4.1
-Rationale: PATCH. A refinement of wording within an existing principle, adding no obligation and
-removing none. Visible-activity indication now starts after roughly 150 milliseconds rather than
-immediately, which serves the rule's existing intent instead of changing it.
+Version change: 2.0.0 -> 2.1.0
+Rationale: MINOR. Principle I's prohibition on networking is unchanged; what is removed is the
+requirement to prove it with an automated check on the built binary. Nothing that complied before
+stops complying, so this is not a backward-incompatible redefinition — the commitment is simply
+upheld by design and review rather than enforced by tooling.
 
 Modified principles:
-- III. Never Block, Always Show Progress: the indication trigger changed from the moment an
-  operation begins to the moment it has been running for roughly 150 milliseconds. Read
-  literally, the previous wording flashed an indicator on every keystroke for fast-but-variable
-  work such as filtering, which communicates less than showing nothing. The form the indication
-  takes is now explicitly left to judgment at the point of use.
+- I. Local-First and Private by Default: drops the mandated build-time verification and the
+  framework-linking clause, which was a poor proxy in any case since Foundation carries networking
+  regardless. The prohibition on writing networking code stands.
 
 Added sections: none
 
 Removed sections: none
 
-Deferred items:
-- TODO(DISTRIBUTION_CHANNEL): Mac App Store vs. Developer ID direct download is undecided.
-  Until it is decided and recorded in Platform and Technology Constraints, no change may
-  foreclose either path.
-
 Downstream follow-up (outside this document):
-- specs/001-disk-space-explorer/spec.md requires visible progress for scanning and duplicate
-  detection but not for removal, undo, or preview. Those gaps must be closed to satisfy the
-  broadened Principle III.
+- The plan carried a gate item requiring the automated check to be built. It is withdrawn.
 
 Prior history:
+- 2.0.0 (2026-08-08): dropped the App Sandbox and closed TODO(DISTRIBUTION_CHANNEL) in favour of
+  Developer ID direct download, foreclosing the Mac App Store. Amended Principle I's enforcement
+  mechanism, since an undeclared entitlement means nothing outside a sandbox, and Principle II to
+  record that the removal guards are now the only barrier against data loss. Hardened Runtime,
+  Developer ID signing, and notarization remain required.
+- 1.4.1 (2026-08-08): refined Principle III's activity indication to appear after roughly 150
+  milliseconds rather than immediately, avoiding indicator flicker on fast operations.
 - 1.4.0 (2026-08-08): broadened Principle III from scanning to every operation that loads,
   computes, or waits, and required background activity to be visible and never to disable
   unrelated controls or block its own cancellation.
@@ -56,12 +55,16 @@ The principles below exist to keep that trust intact.
 Spacelyzer MUST function completely without network access; no feature may depend on a network
 round trip. Scan results, file paths, filenames, and usage data MUST NOT leave the device by any
 means: no analytics, no crash-reporting SDK, no remote configuration, no cloud sync. The app MUST
-NOT declare network client or server entitlements. Diagnostic logging MUST go through OSLog with
-paths and user content marked private so they are redacted from captured logs.
+NOT contain code that opens a network connection or issues a network request. Diagnostic logging
+MUST go through OSLog with paths and user content marked private so they are redacted from captured
+logs.
 
-Rationale: A completed scan is a map of everything a person keeps on their Mac. It is the most
-sensitive artifact this app produces, and the only durable guarantee that it is never leaked is
-to make leaving the device structurally impossible rather than merely disallowed by policy.
+Rationale: A completed scan is a map of everything a person keeps on their Mac, and it is the most
+sensitive artifact this app produces. Spacelyzer ships without the App Sandbox, so the operating
+system no longer prevents that map from leaving. What keeps it here is that no such feature will be
+built — a design commitment upheld in review, not a boundary policed by tooling. The app has no
+reason to reach the network, so the simplest way to guarantee it never does is to never write the
+code.
 
 ### II. Destructive Actions Are Guarded (NON-NEGOTIABLE)
 
@@ -74,8 +77,16 @@ system directories, SIP-protected paths, and the app's own container, MUST be ex
 removal targets. Bulk operations MUST be cancellable and MUST surface per-item failures rather
 than failing silently or partially.
 
+Spacelyzer ships without the App Sandbox, so the operating system places no limit on what it is
+able to delete. These guards are therefore the only barrier between a defect in the removal path
+and the permanent loss of someone's data. They MUST be enforced in the model layer, where no
+interface change or new entry point can route around them, and every guard MUST carry automated
+coverage proving that protected locations are refused.
+
 Rationale: A cleanup tool that removes the wrong thing destroys data the user cannot get back.
-Recoverability and informed consent are far cheaper than any recovery attempt or apology.
+Recoverability and informed consent are far cheaper than any recovery attempt or apology. Running
+unsandboxed removes the backstop that would otherwise contain the damage, which raises the standard
+these guards must meet rather than lowering it.
 
 ### III. Never Block, Always Show Progress
 
@@ -211,13 +222,21 @@ leaves behind a credential to rotate and a history to rewrite.
   target. iOS and iPadOS support is out of scope and MUST NOT drive design compromises.
 - The stack is Swift with SwiftUI for interface, SwiftData for persistence, Swift Testing for
   unit tests, and XCUITest for UI tests.
-- App Sandbox and Hardened Runtime MUST remain enabled in every build configuration.
-- Entitlements MUST be least-privilege. Filesystem reach MUST come from user-granted access such
-  as open panels and security-scoped bookmarks rather than blanket entitlements. Each new
-  entitlement MUST be justified in its change and recorded in this section.
-- TODO(DISTRIBUTION_CHANNEL): the distribution channel is undecided. Until it is chosen, no
-  change may foreclose either the Mac App Store or Developer ID direct distribution, which means
-  sandbox compliance is maintained and no private or deprecated API is used.
+- The App Sandbox is deliberately NOT enabled. A sandboxed app cannot enumerate volumes, cannot
+  reach the filesystem except through locations the user selects in an open panel, and cannot see
+  space held by system snapshots at all. Those limits are incompatible with the product.
+- Hardened Runtime MUST remain enabled in every build configuration. Every release MUST be signed
+  with a Developer ID identity and notarized.
+- Distribution is Developer ID direct download. Mac App Store distribution is foreclosed by the
+  absence of the sandbox and is out of scope; no work may be undertaken on the assumption that it
+  will return without a MAJOR amendment to this document.
+- Access to protected locations depends on the user granting Full Disk Access in System Settings.
+  The app MUST NOT present itself as requiring it, MUST remain useful without it, and MUST report
+  the resulting gap in coverage rather than presenting an incomplete scan as a complete one.
+- Private and deprecated API MUST NOT be used. Where a capability is only reachable by invoking a
+  system command-line tool, that dependency MUST be isolated behind a single interface, MUST treat
+  the tool's output as untrusted and changeable, and MUST degrade to a stated approximation when
+  parsing fails rather than reporting a wrong number confidently.
 - Dependencies permitted under Principles V and VI MUST be integrated with Swift Package Manager
   and pinned to an exact stable version, with the resolved-version file committed so that builds
   are reproducible and the adopted version is auditable.
@@ -263,4 +282,4 @@ feature plan, and the merge gates above. Runtime development guidance for contri
 lives alongside this file under `.specify/`; where that guidance and this constitution disagree,
 this constitution governs.
 
-**Version**: 1.4.1 | **Ratified**: 2026-08-08 | **Last Amended**: 2026-08-08
+**Version**: 2.1.0 | **Ratified**: 2026-08-08 | **Last Amended**: 2026-08-08

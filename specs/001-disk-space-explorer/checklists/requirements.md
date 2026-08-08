@@ -32,7 +32,7 @@
 
 ## Notes
 
-- Scope: 8 user stories, 68 functional requirements, 16 success criteria.
+- Scope: 8 user stories, 71 functional requirements, 17 success criteria.
 - Validation history. The initial draft failed one item: a treemap requirement demanded that
   nesting be "visually readable", which no reviewer could objectively judge; it was rewritten to
   require nested items drawn inside their parent's bounds with a visible boundary. After the scope
@@ -45,18 +45,18 @@
   disk rather than logical length, decimal size units to match the operating system, application
   bundles shown as single items, undo limited to the most recent removal batch, and duplicate
   detection scoped to one scan with an adjustable small-file threshold.
-- Constitution alignment. Principle I is carried by FR-067 and FR-068, Principle II by FR-051
-  through FR-061, and Principle III by the cancellation and progress obligations in FR-003, FR-004,
-  FR-056, and FR-066.
-- Known gap against Principle III, introduced by constitution v1.4.1. The principle now requires
-  every operation still running after roughly 150 milliseconds to show that it is working, and
-  forbids background
-  work from disabling unrelated controls. The spec requires visible progress for scanning and
-  duplicate detection but not for removal, undo, or preview. Recorded as gate item 3 in plan.md.
-- Known gap against Principle V. The constitution requires VoiceOver support, and a treemap is the
-  hardest case for a screen reader. This spec states keyboard navigation for the hierarchy in
-  FR-025 but specifies no accessible equivalent for the treemap. The Constitution Check during
-  `/speckit-plan` will raise this; it must be either specified or explicitly justified there.
+- Constitution alignment against v2.1.0. Principle I is carried by FR-067 and FR-068, Principle II
+  by FR-051 through FR-061, and Principle III by FR-003, FR-004, FR-056, FR-066, and FR-069 through
+  FR-071, with SC-017 making the last of those measurable.
+- Closed: the Principle III gap. FR-069 through FR-071 and SC-017 now cover removal, restoration,
+  preview, filtering, and the category breakdown, which previously had no visibility obligation.
+- Closed: the Principle V accessibility gap. Research R7 makes the outline the accessible
+  equivalent of the treemap and requires drawn treemap nodes to be exposed as accessibility
+  elements driving the shared selection, so no waiver was needed.
+- Changed by constitution v2.0.0, which dropped the App Sandbox. FR-001 now requires a volume
+  picker rather than a file chooser, and FR-017 keeps its requirement to size snapshot space while
+  gaining a fallback to the unattributed residual when a size cannot be read. Both were previously
+  blocked by the sandbox.
 - Deferred by decision, not oversight: age as a visual dimension, comparison between scans over
   time, suggested reclaimable targets such as caches and derived data, session restore, and
   exporting results. Comparison over time is listed as out of scope in Assumptions.

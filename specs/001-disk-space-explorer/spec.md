@@ -315,7 +315,9 @@ and that the app refuses any action that would delete every copy.
 
 **Choosing and measuring a location**
 
-- **FR-001**: Users MUST be able to choose any readable folder or mounted volume as the scan root.
+- **FR-001**: Users MUST be able to choose any readable folder or mounted volume as the scan root,
+  and the system MUST present the available mounted volumes directly rather than requiring the user
+  to navigate to one through a file chooser.
 - **FR-002**: System MUST obtain the user's consent before reading locations the operating system
   protects, and MUST continue with the rest of the scan if consent is withheld.
 - **FR-003**: System MUST display continuous progress while scanning, including what is currently
@@ -353,7 +355,9 @@ and that the app refuses any action that would delete every copy.
   reclaim automatically, and any remainder that cannot be attributed.
 - **FR-017**: System MUST name space held by snapshots and automatically reclaimable space as
   distinct categories with their sizes, and MUST explain in plain language why that space is not
-  visible as ordinary files.
+  visible as ordinary files. Where a size cannot be determined, that space MUST fall through to the
+  unattributed remainder with the reason stated; it MUST NOT be reported as zero and MUST NOT be
+  quietly omitted.
 - **FR-018**: When the app lacks access to one or more locations that the operating system protects
   by default, system MUST inform the user before presenting results, name each location that will
   be missing, and provide guidance for granting the access.
@@ -367,7 +371,9 @@ and that the app refuses any action that would delete every copy.
 **Browsing the hierarchy**
 
 - **FR-022**: System MUST present results as an expandable hierarchy mirroring the folder structure
-  of the scanned location.
+  of the scanned location. Application bundles MUST appear as single items by default, and MUST be
+  expandable only when the user explicitly chooses to look inside one, at which point their
+  contents are measured on demand.
 - **FR-023**: Each entry MUST show its name, cumulative size, share of its parent, and the number of
   items it contains.
 - **FR-024**: Children MUST be ordered largest first by default, and users MUST be able to reorder
@@ -426,8 +432,9 @@ and that the app refuses any action that would delete every copy.
   within the app, without opening a separate application.
 - **FR-046**: Users MUST be able to reveal the selected item in the system file browser.
 - **FR-047**: Users MUST be able to open the selected item in its default application.
-- **FR-048**: System MUST show, for the selected item, its full path, size on disk, kind, and its
-  created, modified, and last-accessed dates.
+- **FR-048**: System MUST show, for the selected item, its full path, space occupied on disk,
+  logical file length, kind, and its created, modified, and last-accessed dates. Where the occupied
+  and logical figures differ, both MUST be visible rather than the difference being hidden.
 - **FR-049**: Inspecting an item MUST NOT alter that item's contents or location.
 - **FR-050**: When an item cannot be previewed, system MUST explain why rather than presenting an
   empty or failed preview.
@@ -474,13 +481,25 @@ and that the app refuses any action that would delete every copy.
 - **FR-068**: Scan results, the exclusion list, and the removal history MUST be stored only on the
   user's own machine.
 
+**Keeping the user informed**
+
+- **FR-069**: Any operation still running after roughly 150 milliseconds MUST show in the interface
+  that work is in progress, and MUST keep showing it until the operation ends. Operations that
+  finish sooner MUST NOT flash an indicator on and off.
+- **FR-070**: Removal, restoration, preview, filtering, and the category breakdown MUST each
+  indicate that they are working, and removal and restoration MUST additionally report incremental
+  progress once they exceed two seconds.
+- **FR-071**: Background work MUST NOT disable parts of the interface unrelated to it, and MUST NOT
+  prevent the user from cancelling it.
+
 ### Key Entities
 
 - **Scan**: One measurement of a chosen root taken at a point in time. Knows its root, when it ran,
   whether it completed or was cancelled, its totals, and what it skipped.
 - **Scanned Item**: A file or folder found by a scan. Carries its name, location within the
-  hierarchy, size on disk, cumulative size including descendants, item count, category, and its
-  created, modified, and last-accessed dates.
+  hierarchy, space occupied on disk, cumulative size including descendants, item count, category,
+  and its created, modified, and last-accessed dates. Its logical file length is available when the
+  item is inspected.
 - **Scan Root**: The folder or volume a scan was told to measure, and the basis for every percentage
   shown.
 - **Volume Context**: The capacity, used space, and free space reported by the volume holding the
@@ -534,11 +553,15 @@ and that the app refuses any action that would delete every copy.
   reports is verifiably identical in content, with no false positives.
 - **SC-016**: No information about scanned files leaves the device during any operation, verifiable
   by observing no network activity for the lifetime of the process.
+- **SC-017**: No operation leaves the interface unchanged for longer than 150 milliseconds without
+  indicating that work is in progress.
 
 ## Assumptions
 
-- Sizes are reported as space actually occupied on disk rather than logical file length, because the
-  user's goal is reclaiming physical space. Where the two differ, the occupied figure is shown.
+- Every headline size — in the hierarchy, the treemap, totals, and reclaimable figures — is space
+  actually occupied on disk, because the user's goal is reclaiming physical space. The logical file
+  length is shown alongside it in an item's details, so that a file whose two figures differ, such
+  as a sparse or compressed one, can be understood rather than looking like a mistake.
 - Sizes are displayed in decimal units by default, matching how the operating system reports them,
   so that the two agree; the binary convention is available for users who prefer it.
 - Performance targets assume an Apple silicon Mac with an internal solid-state drive scanning a
@@ -552,8 +575,9 @@ and that the app refuses any action that would delete every copy.
   multi-user considerations.
 - Scans are started by the user. Nothing is scanned in the background or on a schedule in this
   feature.
-- Application bundles are presented as single items rather than expanded as folders by default,
-  since users think of an installed app as one thing.
+- Application bundles are presented as single items by default, since users think of an installed
+  app as one thing, but a user who explicitly asks to look inside one can expand it. Bundles are
+  not expanded during the initial scan; their contents are measured on demand when opened.
 - Filtering operates on the results already in memory from the current scan and never triggers a
   rescan.
 - Undo covers the most recent removal batch only. Older removals remain recoverable from the Trash
@@ -563,8 +587,9 @@ and that the app refuses any action that would delete every copy.
   not synchronised or shared anywhere.
 - Duplicate detection operates within the scope of a single scan, not across previous scans or
   unscanned parts of the system.
-- Very small files are excluded from duplicate detection by default, as grouping them recovers
-  negligible space while costing significant time; the threshold is adjustable by the user.
+- Duplicate detection skips files below 1 MB by default, as grouping them recovers negligible space
+  while costing significant hashing time. The threshold is adjustable by the user, including down
+  to nothing for an exhaustive pass.
 - Out of scope for this feature: analysing cloud-only or not-yet-downloaded files, scanning remote
   machines, uninstalling applications, comparing one scan against another over time, and any form of
   disk repair or optimisation.

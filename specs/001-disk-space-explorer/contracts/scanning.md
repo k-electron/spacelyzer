@@ -6,40 +6,49 @@ These are internal interfaces between the scanning capability and the rest of th
 so that traversal, accounting, and access brokering can be tested against fixture trees with no
 interface running, which Principle IV requires.
 
+**Shared types used across all three contract files.** `ScanNode` is the SwiftData model described
+in [data-model.md](../data-model.md), stored in an in-memory-only configuration. `NodeStore` is the
+set of `ScanNode` objects belonging to one scan, reached through its model context. `NodeID` is a
+node's `PersistentIdentifier`. `NodeSet` is a set of those identifiers, used wherever a subset of
+the scan needs passing around.
+
 ---
 
 ## AccessBroker
 
-Owns every interaction with the sandbox boundary. No other component may resolve a bookmark or
-start a security scope.
+Owns everything to do with what the app is permitted to read. The app runs unsandboxed, so the
+constraint is no longer the sandbox but the system's privacy protections.
 
 ```swift
 protocol AccessBroker {
-    func requestScanRoot() async throws -> AccessGrant
-    func resolve(_ bookmark: Data) throws -> AccessGrant
-    func grantForRemoval(of paths: [URL]) async throws -> AccessGrant
+    func mountedVolumes() -> [VolumeDescriptor]
+    func chooseFolder() async -> URL?
+    var fullDiskAccess: FullDiskAccessState { get }
+    func openFullDiskAccessSettings()
+    func protectedLocationsUnreadable() -> [URL]
 }
 
-protocol AccessGrant: AnyObject {
-    var url: URL { get }
-    var bookmark: Data { get }
-    var isStale: Bool { get }
-}
+enum FullDiskAccessState { case granted, notGranted, unknown }
 ```
 
 **Contract**
 
-- `requestScanRoot` presents a system open panel. There is no other way to obtain a root, because a
-  sandboxed app cannot widen its own reach (research R1). It must never be called speculatively;
-  only in response to a user action.
-- An `AccessGrant` holds an active security scope for its lifetime and releases it on deinit. Every
-  start is matched by exactly one stop; leaked scopes eventually cause the system to refuse further
-  grants, which surfaces as unexplained permission failures much later.
-- `resolve` reports `isStale` rather than hiding it. The caller re-saves the returned bookmark when
-  stale, or reports the location unavailable when resolution fails, and never treats an unavailable
-  location as an empty one.
-- Read scope is requested read-only. Read-write is requested only through `grantForRemoval`, and
-  only for paths the user has already confirmed.
+- `mountedVolumes` enumerates volumes directly, which is what FR-001's volume picker requires. This
+  became possible only when the sandbox was dropped in constitution v2.0.0.
+- `chooseFolder` remains available for scanning an arbitrary folder, but it is a convenience rather
+  than the only route to access, which is what it was under the sandbox.
+- `fullDiskAccess` is determined by attempting to read a location the system protects and observing
+  the outcome. There is no API that reports the grant directly, so the state is inferred and
+  `unknown` is a legitimate answer that must be handled rather than coerced to a boolean.
+- `openFullDiskAccessSettings` takes the user to the relevant System Settings pane. The app MUST
+  NOT claim it requires the privilege, and MUST remain useful without it (constitution v2.0.0,
+  Platform and Technology Constraints).
+- `protectedLocationsUnreadable` drives FR-018: before results are shown, the user is told which
+  locations will be missing, named individually rather than as a vague warning.
+- The grant usually takes effect only after relaunch, so the app watches for the state changing and
+  offers a rescan (FR-019) rather than assuming a running process gains access mid-session.
+- No security-scoped bookmark is needed for access any more. `RecentLocation` may still store one
+  as a durable, rename-resilient reference to a path, which is a different purpose.
 
 ---
 
@@ -52,6 +61,8 @@ protocol ScanEngine {
         excluding: [ExclusionRule],
         options: ScanOptions
     ) -> AsyncThrowingStream<ScanEvent, Error>
+
+    func expandPackage(_ id: NodeID, in store: NodeStore) async throws -> Subtree
 }
 
 enum ScanEvent {
@@ -78,7 +89,12 @@ enum ScanEvent {
 - Symbolic links are recorded and never followed (FR-007).
 - Excluded subtrees are skipped during enumeration rather than filtered afterwards, so exclusion
   costs nothing to apply.
-- Sizes are allocated size, never logical length.
+- Sizes are allocated size, never logical length. Logical length is not collected during the scan;
+  `ItemInspector` reads it for the single item being inspected.
+- Application bundles are measured whole but not enumerated during the main pass, so they arrive as
+  single items (FR-022). `expandPackage` performs a targeted pass over one bundle when the user
+  opens it, returning a subtree to splice in. It is called only in response to that explicit action,
+  never speculatively, and like any other operation it reports that it is working if it runs long.
 
 **Testability requirement**: The engine reads through a `FileSystemProvider` seam so tests can
 drive it against a constructed temporary tree. No test may enumerate a real home directory, and no
@@ -108,8 +124,13 @@ protocol VolumeAccountant {
   another category, because SC-008 forbids presenting any gap without a stated cause.
 - Purgeable space is derived as available-for-important-usage minus available capacity (research
   R4).
-- The accountant does not attempt to size local snapshots. No public API exposes them inside the
-  sandbox, and pretending otherwise would produce a confidently wrong number. Their space arrives
-  in the `unattributed` entry, whose explanation names them.
+- Snapshot sizes come from `diskutil apfs listSnapshots`, isolated behind one interface that treats
+  the tool's output as untrusted and changeable. When the tool is missing, its output does not
+  parse, or a size cannot be derived, the space falls through to `unattributed` with the reason
+  stated. It is never reported as zero, because a confidently wrong number is worse here than an
+  admitted unknown.
+- Snapshot sizes are estimates that drift. A snapshot shares blocks with the live filesystem, so
+  the space unique to it grows as the volume diverges. The accountant labels these as current
+  estimates rather than fixed properties.
 - `context` returns nil rather than throwing when the root is not on a mounted volume; scanning a
   plain folder is still valid, it simply has nothing to reconcile against.

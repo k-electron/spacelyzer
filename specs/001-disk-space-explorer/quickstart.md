@@ -23,6 +23,18 @@ xcodebuild -version
 
 - No network access is needed at any point, for the build or the tests. If something you add starts
   requiring it, that is a Principle I violation rather than an environment problem.
+- **Grant automation permission before running the UI tests.** Without it the runner fails with
+  `Timed out while enabling automation mode` and the whole `xcodebuild test` invocation reports
+  failure even though the unit tests passed. Grant Xcode accessibility and automation rights under
+  System Settings, Privacy & Security, or run the UI tests from the Xcode GUI once to trigger the
+  prompt. This is an environment issue, not a code failure, but merge gate 2 cannot be satisfied
+  until it is cleared.
+- **Grant Full Disk Access to the built app before running the accounting scenarios.** The app is
+  unsandboxed, but privacy-protected locations such as Desktop, Documents, and Downloads still
+  require the grant. Add the built binary under System Settings, Privacy & Security, Full Disk
+  Access, then relaunch it; the grant does not usually take effect in a running process. Scenarios
+  1 and 3 through 8 work without it. Scenario 2 will legitimately report a large volume of skipped
+  locations until it is granted, which is itself worth observing once.
 
 ---
 
@@ -50,6 +62,20 @@ xcodebuild build -project Spacelyzer.xcodeproj -scheme Spacelyzer -configuration
   -destination 'platform=macOS'
 ```
 
+Verify the sandbox is off and Hardened Runtime is on by inspecting the signed product rather than
+trusting the build settings:
+
+```bash
+APP="$HOME/Library/Developer/Xcode/DerivedData/Spacelyzer-*/Build/Products/Debug/Spacelyzer.app"
+codesign -d --entitlements - --xml $APP | plutil -p -   # expect no com.apple.security.app-sandbox
+codesign -d -v $APP 2>&1 | grep flags                   # expect flags=0x10000(runtime)
+```
+
+A local Release build is signed with your Apple Development identity and therefore carries
+`com.apple.security.get-task-allow`, which permits debugger attachment. That is expected locally
+and unacceptable for distribution: notarization rejects it. Release artifacts intended for users
+must be Developer ID signed and notarized, which drops that entitlement.
+
 ---
 
 ## Fixtures
@@ -71,13 +97,9 @@ deliberately rather than on every invocation.
 
 ## Before implementation begins
 
-Two gate items from [plan.md](./plan.md) must close first. Neither is optional.
+One gate item from [plan.md](./plan.md) must close first.
 
-**1. Amend FR-017.** The spec currently requires reporting the size of space held by local
-snapshots as its own category, which cannot be done from inside the App Sandbox. Amend it to the
-named-residual approach in [research.md](./research.md) R4 before writing code against it.
-
-**2. Run the storage benchmark.** Principle V requires SwiftData unless a recorded measurement says
+**Run the storage benchmark.** Principle V requires SwiftData unless a recorded measurement says
 otherwise. Build the 500,000-node fixture, measure a SwiftData-backed store and the in-memory node
 store against SC-001 and SC-009, and write the numbers into research R5. Whichever wins, the
 decision is then evidence-backed rather than assumed.
@@ -88,7 +110,7 @@ decision is then evidence-backed rather than assumed.
 
 ### 1. Scan a location and browse the result (Story 1)
 
-Choose the fixture root through the open panel and start a scan. Expect progress to update
+Choose the fixture root through the folder chooser and start a scan. Expect progress to update
 continuously, the hierarchy to appear ordered largest first, and each row to carry size, share of
 parent, and item count. Expand to a leaf and confirm the reported size matches the fixture.
 
