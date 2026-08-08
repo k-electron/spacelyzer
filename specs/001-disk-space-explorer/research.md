@@ -224,6 +224,14 @@ settings.
 **Alternatives considered**: Unbounded task fan-out was rejected because it thrashes on I/O-bound
 work. Serial traversal is simpler but leaves parallelism unused on machines that have it.
 
+**Discovered during implementation**: the project carries `SWIFT_DEFAULT_ACTOR_ISOLATION =
+MainActor`, which is the Xcode 26 default for a new app. Every type is main-actor isolated unless
+it says otherwise, so satisfying Principle III is not a matter of avoiding `@MainActor` — it
+requires marking scanning, analysis, and layout types `nonisolated` explicitly. Anything intended
+to run off the main actor and declared without that annotation will compile as main-actor isolated
+and quietly defeat the principle. Every type in `Scanning/` is annotated accordingly, and new
+background work must do the same.
+
 ---
 
 ## R9. Duplicate detection
