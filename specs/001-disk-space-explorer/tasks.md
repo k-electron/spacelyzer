@@ -51,11 +51,11 @@ decided in plan.md. Tests under `SpacelyzerTests/` and `SpacelyzerUITests/`.
 
 **⚠️ CRITICAL**: No user story work can begin until this phase is complete
 
-- [X] T007 Create the `ScanNode` SwiftData model in `Spacelyzer/Models/ScanNode.swift` with parent, children, name, kind, category, ownSize, cumulativeSize, itemCount, dates, and flags per data-model.md
-- [X] T008 [P] Create the `Scan` model with its state machine in `Spacelyzer/Models/Scan.swift` covering idle, requestingAccess, scanning, completed, cancelled, and stale
+- [X] T007 Define the scan node as the `ScannedItem` value type in `Spacelyzer/Scanning/ScanEngine.swift` with children, name, kind, category, ownSize, cumulativeSize, itemCount, dates, and flags per data-model.md
+- [X] T008 [P] Create the scan state machine in `Spacelyzer/Models/ScanTypes.swift` covering idle, requestingAccess, scanning, completed, cancelled, and stale
 - [X] T009 [P] Create the durable models `ExclusionRule`, `RecentLocation`, and `Preferences` in `Spacelyzer/Models/DurableRecords.swift`
 - [X] T010 [P] Create `RemovalHistoryEntry` and `RemovedItemRecord` in `Spacelyzer/Models/RemovalHistory.swift`
-- [X] T011 Configure the `ModelContainer` in `Spacelyzer/SpacelyzerApp.swift` with two configurations: scan models in-memory-only, durable records on disk (research R5)
+- [X] T011 Configure the `ModelContainer` in `Spacelyzer/SpacelyzerApp.swift` for the durable records; scan results are held as a value tree rather than in SwiftData, per the benchmark recorded in research R5
 - [X] T012 [P] Add OSLog loggers in `Spacelyzer/Support/Logging.swift` with file paths and user content marked private (Principle I)
 - [X] T013 [P] Add the size formatter in `Spacelyzer/Support/SizeFormatter.swift` supporting decimal and binary conventions driven by `Preferences` (FR-020, FR-021)
 - [X] T014 [P] Add file category derivation from `UTType` in `Spacelyzer/Support/Category.swift`

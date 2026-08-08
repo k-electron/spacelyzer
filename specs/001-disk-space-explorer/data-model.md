@@ -3,33 +3,29 @@
 **Date**: 2026-08-08
 **Spec**: [spec.md](./spec.md) | **Research**: [research.md](./research.md)
 
-Everything is SwiftData, in one container with two configurations. Scan data is configured
-in-memory-only: it describes one scan, can reach a million nodes, and vanishes on quit. Durable
-data is small, long-lived, and written to disk. Nothing about a user's files is durable except the
+The model splits in two. Scan data is a value tree describing one scan, reaching up to a million
+nodes, owned for the length of the session and never written anywhere. Durable data is small,
+long-lived, and kept in SwiftData on disk. Nothing about a user's files is durable except the
 paths they themselves chose to remember.
 
-That split is deliberate rather than incidental. SwiftData persists by default, so scan results
-would otherwise land in Application Support and be picked up by Time Machine; the in-memory
-configuration is what keeps a complete index of someone's disk from outliving the session.
+Scan results were originally SwiftData too, in an in-memory configuration. Measurement moved them
+out: materialising one model object per file cost between 4.7 and 15 times the traversal that
+produced it, recorded in research R5. Holding the tree as values is both faster and a more direct
+way of guaranteeing no index of someone's disk outlives the session.
 
 ---
 
-## Scan data (SwiftData, in-memory configuration)
+## Scan data (in-memory value tree)
 
-SwiftData is used throughout, which is Principle V's default and therefore needs no justification.
-Scan results live in a model configuration created with `isStoredInMemoryOnly: true`, so they exist
-for the session and disappear when the app quits. Durable records use a second, on-disk
-configuration in the same container.
+### ScannedItem
 
-### ScanNode
-
-One model object per file or folder found by a scan.
+One value per file or folder found by a scan, produced by `ScanEngine` and consumed directly by
+the interface.
 
 | Field | Type | Meaning |
 |---|---|---|
-| `parent` | `ScanNode?` | Absent only for the scan root |
-| `children` | `[ScanNode]` | Empty for leaves |
-| `name` | `String` | Paths are reconstructed by walking parents rather than stored per node |
+| `children` | `[ScannedItem]` | Empty for leaves; the tree is owned top-down, so no parent link is stored |
+| `name` | `String` | Paths are reconstructed by walking the tree rather than stored per node |
 | `kind` | `Kind` | `file`, `directory`, `package`, `symlink`, or `remainder` |
 | `category` | `Category` | Derived once from the item's type identifier |
 | `ownSize` | `Int64` | Allocated size of the item itself, zero for directories |
@@ -140,7 +136,7 @@ same data always produces the same picture (research R6).
 
 ---
 
-## Durable data (SwiftData, on-disk configuration)
+## Durable data (SwiftData, on disk)
 
 Four small record types. None of them stores a scan.
 
@@ -179,7 +175,7 @@ is what makes a permanent deletion honestly reportable as unrestorable rather th
 
 ## What is deliberately absent
 
-No scan is persisted, which the in-memory configuration enforces rather than merely intends.
+No scan is persisted. Holding results as values makes that structural rather than configured.
 Comparison between scans is out of scope in the spec, removing the only reason to keep one, and a
 stored index of someone's entire disk is an artifact worth not creating by default. Recent
 locations store a reference and a total, not contents.

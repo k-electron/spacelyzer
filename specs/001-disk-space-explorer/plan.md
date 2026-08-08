@@ -10,9 +10,8 @@
 Spacelyzer measures a user-chosen folder or volume, presents the result simultaneously as a
 navigable outline and a proportional treemap bound by one shared selection, and lets the user
 narrow, inspect, and safely reclaim what it finds. The technical approach is a bulk-enumerated,
-cancellable, concurrent scan feeding a SwiftData store that both views read from, configured
-in-memory so results vanish on quit, with durable state limited to exclusions, recent locations,
-and removal history. Everything runs locally with no network access and no third-party
+cancellable, concurrent scan producing a value tree that both views read from directly, with
+durable state limited to exclusions, recent locations, and removal history. Everything runs locally with no network access and no third-party
 dependencies.
 
 The plan was first written against a sandboxed app and has been revised. Research established that
@@ -33,10 +32,10 @@ recorded in [research.md](./research.md) R8.
 interop, QuickLookUI, UniformTypeIdentifiers, CryptoKit, and OSLog. Zero third-party packages are
 planned, so Principle VI's license, reputation, and version obligations do not yet apply.
 
-**Storage**: SwiftData throughout, in one container with two configurations. Scan results use an
-in-memory-only configuration and vanish on quit; exclusion rules, recent locations, removal
-history, and preferences are written to disk. This follows Principle V's default, so no measurement
-is required.
+**Storage**: SwiftData for durable records — exclusion rules, recent locations, removal history,
+and preferences. Scan results are the value tree the engine produces, held for the session and
+rendered directly. Principle V's default is SwiftData; deviating is permitted here by the recorded
+benchmark in research R5, which found model materialisation cost 4.7 to 15 times the traversal.
 
 **Testing**: Swift Testing for unit coverage of traversal, accounting, layout, filtering, duplicate
 grouping, and removal guards, all exercised against temporary fixture trees. XCUITest for the
@@ -77,7 +76,7 @@ Working set up to roughly 1,000,000 nodes per scan.
 | II. Destructive Actions Are Guarded (NON-NEGOTIABLE) | Pass | Removal is explicit-selection only, previewed before it runs, routed to the Trash by default, refused for protected locations before the confirmation appears, cancellable, and reversible for the most recent batch. The guards live in `RemovalGuard` and `DuplicateSet` rather than in any view, satisfying v2.0.0's requirement that no interface change can route around them. |
 | III. Never Block, Always Show Progress | Pass | Traversal, hashing, filtering, layout, and removal all run off the main actor, and scan cancellation is checked at every directory batch boundary. FR-069 through FR-071 now carry the visibility and non-blocking obligations, and SC-017 makes them measurable. |
 | IV. Verified Before Merge | Pass | Scan, accounting, layout, filter, and removal-guard logic are unit-testable against fixture trees; no test touches a real home directory. |
-| V. Native and Minimal | Pass | SwiftUI, SwiftData throughout, and zero third-party dependencies. Storage follows the principle's stated default, so no measurement or justification is needed. The treemap accessibility gap is resolved by research R7. |
+| V. Native and Minimal | Pass | SwiftUI, SwiftData for durable records, and zero third-party dependencies. Scan results deviate from the SwiftData default, which the principle permits on a recorded measurement; that benchmark is in research R5. The treemap accessibility gap is resolved by research R7. |
 | VI. Dependencies Are Open, Proven, and Current | Pass | No third-party dependency is planned. If one is later proposed it must clear this principle before adoption. |
 | VII. Docs and Code Stay in Sync | Pass | The sandbox change was propagated in the same commit as the amendment: build settings, spec, research, contracts, and this plan all moved together. An earlier version of this row claimed the constitution recorded Swift 5.0 as a project fact; it never did, and no amendment is needed when the language mode changes. |
 | VIII. Only Intended Files Are Committed | Pass | The root `.gitignore` already covers macOS, Xcode, build, and credential artifacts, and no new class of generated output is introduced. |
@@ -88,10 +87,11 @@ Working set up to roughly 1,000,000 nodes per scan.
    `diskutil apfs listSnapshots`. FR-017 keeps its requirement and gains a fallback: where a size
    cannot be determined the space falls through to the unattributed residual with the reason
    stated, so SC-008 holds even when the parser breaks.
-2. ~~Measure before deviating from SwiftData.~~ **Closed.** The decision is to use SwiftData
-   throughout, with scan data in an in-memory-only configuration. Following Principle V's default
-   requires no measurement; only deviating did. The performance risk this accepts is recorded in
-   research R5.
+2. ~~Measure before deviating from SwiftData.~~ **Closed by measurement.** SwiftData was adopted
+   first without a benchmark, since following Principle V's default needs none. It then proved to
+   be the dominant cost — model materialisation ran 4.7 to 15 times the traversal — so scan
+   results moved to a value tree and the durable records stayed in SwiftData. The benchmark is
+   recorded in research R5, which is exactly the evidence the principle requires for deviating.
 3. ~~Extend the spec's progress obligations.~~ **Closed.** FR-069 through FR-071 and SC-017 now
    carry the visibility, incremental-progress, and non-blocking rules for removal, restoration,
    preview, filtering, and the category breakdown.

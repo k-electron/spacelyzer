@@ -133,27 +133,41 @@ would violate FR-016 and SC-008.
 
 ## R5. Where scan results live
 
-**Decision**: SwiftData for everything, in one container with two configurations. Scan results use
-a configuration created with `isStoredInMemoryOnly: true`; exclusion rules, recent locations,
-removal history, and preferences use an on-disk configuration.
+**Decision, revised after measurement**: SwiftData holds the durable records only — exclusion
+rules, recent locations, removal history, and preferences. Scan results are the value tree the
+engine already produces, held for the length of the session and rendered directly.
 
-**Rationale**: SwiftData is Principle V's stated default, and following the default requires no
-measurement or justification — only deviating does. It is also the least code: no custom store to
-write, test, and maintain, no hand-rolled index, and one persistence framework rather than two.
-The in-memory configuration for scan data is what keeps a full index of the user's disk from
-outliving the session, since SwiftData otherwise writes to Application Support, which Time Machine
-backs up.
+**The measurement that changed it.** SwiftData was chosen first, without a benchmark, on the
+grounds that following Principle V's default needs no justification. It proved to be the dominant
+cost. On a 50,502-node fixture:
 
-**The risk being accepted, stated plainly**: a million managed objects with recursive size rollups
-and predicate evaluation on every filter keystroke may not reach SC-005's interactive treemap or
-SC-009's 200 millisecond filter, and the memory footprint of a million model objects is far above
-what a compact array layout would use. This was a deliberate choice to build the simple thing first
-and find out, rather than to optimise against an unmeasured fear. No revisit trigger is
-pre-committed; if it turns out slow in practice, the storage decision is reopened then.
+| Stage | Time |
+|---|---|
+| Traversal, before parallelism | 0.81 s |
+| Traversal, parallel | 0.39 s |
+| Model import, inline on the main actor | 1.83 s |
+| Model import, via a background `@ModelActor` | 5.86 s |
 
-**Alternatives considered and rejected.** An integer-indexed in-memory node store using parallel
-arrays would cut per-node overhead to tens of bytes and make aggregation cache-friendly, but it is
-a custom store to maintain and Principle V would have required measuring before adopting it. A
+Materialising one model object per file cost between 4.7 and 15 times the price of reading the
+entire tree. Inline import froze the interface for its whole duration; moving it to a background
+actor unfroze the interface but tripled total time because of the save. Extrapolated to the
+500,000 items in SC-001, the import alone lands between 18 and 59 seconds against a 60 second
+budget for the whole scan.
+
+Removing it entirely takes a 50,000-node scan from roughly 6.2 seconds to 0.39, and deletes a
+layer of code rather than adding one. Principle V permits exactly this on exactly this evidence.
+
+**Superseded approach**: one container with two configurations, scan data in-memory-only. That
+kept a full index of the user's disk out of Application Support, which mattered; holding the tree
+in memory achieves the same thing more directly.
+
+**Rationale**: the risk anticipated here — that a million managed objects would miss the
+performance targets — materialised at a twentieth of that scale, and the numbers above are what
+reopened the decision. Building the simple thing first was still the right order: it produced the
+evidence in an afternoon rather than an argument.
+
+**Still available if the value tree proves insufficient.** An integer-indexed store using parallel
+arrays would cut per-node overhead to tens of bytes and make aggregation cache-friendly. A
 memory-mapped file of that same layout under `~/Library/Caches` was the strongest option on the
 merits — near-memory access speed, the kernel's page cache handling memory pressure, and
 persistence essentially free, which would also have made comparison between scans cheap — but it
@@ -296,5 +310,5 @@ matters when previewing arbitrary content found on someone's disk.
 |---|---|
 | R1 access model | Closed. Constitution v2.0.0 dropped the sandbox; build settings updated to match |
 | R4 snapshot sizing | Closed. FR-017 amended with a fallback to the residual when sizing fails |
-| R5 scan storage | Closed. SwiftData throughout, scan data in-memory-only; no benchmark required to follow the default |
+| R5 scan storage | Closed by measurement. Value tree for scan results, SwiftData for durable records; benchmark recorded above |
 | R8 Swift 6 mode | Open. Change `SWIFT_VERSION` from 5.0 in build settings during implementation |
