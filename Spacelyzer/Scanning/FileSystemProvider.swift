@@ -3,8 +3,11 @@ import UniformTypeIdentifiers
 
 /// Uniquely identifies stored data, so the same bytes reachable through several names are counted
 /// once (FR-006).
+///
+/// `device` is signed because `dev_t` is a signed 32-bit value and is genuinely negative for some
+/// devices. Widening it into an unsigned type traps at runtime.
 nonisolated struct FileIdentity: Hashable, Sendable {
-    let device: UInt64
+    let device: Int64
     let inode: UInt64
 }
 
@@ -108,6 +111,6 @@ nonisolated struct LiveFileSystem: FileSystemProvider {
     func identity(of url: URL) -> FileIdentity? {
         var info = stat()
         guard lstat(url.path, &info) == 0 else { return nil }
-        return FileIdentity(device: UInt64(info.st_dev), inode: UInt64(info.st_ino))
+        return FileIdentity(device: Int64(info.st_dev), inode: info.st_ino)
     }
 }

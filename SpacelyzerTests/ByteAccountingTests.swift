@@ -42,6 +42,19 @@ struct ByteAccountingTests {
         #expect(result.totals.measuredBytes < 60_000)
     }
 
+    @Test("A negative device number is representable")
+    func negativeDeviceIdentity() {
+        // dev_t is a signed 32-bit value and is negative for some devices. Widening it into an
+        // unsigned type traps at runtime, which crashed scans of real disks.
+        let identity = FileIdentity(device: -16777218, inode: 42)
+        let same = FileIdentity(device: -16777218, inode: 42)
+        let other = FileIdentity(device: -16777218, inode: 43)
+
+        #expect(identity == same)
+        #expect(identity != other)
+        #expect(Set([identity, same, other]).count == 2)
+    }
+
     @Test("A directory reachable by two paths is measured once")
     func directoryReachableTwiceCountedOnce() async throws {
         // Stands in for a macOS firmlink, where the same directory appears at two paths and
