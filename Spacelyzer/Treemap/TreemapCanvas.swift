@@ -70,8 +70,15 @@ struct TreemapCanvas: View {
     private static let accessibleNodeLimit = 100
 
     var body: some View {
-        Canvas(opaque: false) { context, size in
-            draw(&context, size: size)
+        ZStack {
+            // Two layers on purpose. The rectangles depend only on the layout and the colouring,
+            // so pointing at something redraws the thin overlay instead of all twenty thousand
+            // of them. Drawing everything on every pointer move saturated the main thread on
+            // large folders, and clicks arriving behind that backlog were what felt flaky.
+            TreemapBaseLayer(snapshot: snapshot, coloring: coloring).equatable()
+
+            TreemapOverlayLayer(hovered: hovered, selected: selectedNode)
+                .allowsHitTesting(false)
         }
         // Not a GeometryReader reporting through onChange. That pattern misses changes when the
         // container resizes without the child's identity changing, which is exactly what dragging
@@ -91,15 +98,24 @@ struct TreemapCanvas: View {
                 hovered = nil
             }
         }
-        // Ordered before the single tap so a double click is not consumed as two selections.
         .onTapGesture(count: 2) { location in
             if let node = snapshot.index.node(at: location) { onDrill(node) }
         }
-        .onTapGesture { location in
-            // A remainder carries its parent's path, so clicking one selects the folder it stands
-            // for rather than nothing at all.
-            selection.select(snapshot.index.node(at: location)?.path, from: .treemap)
-        }
+        // Selection deliberately does not go through a second tap gesture. Two tap recognisers on
+        // one view make every single click wait out the double-click interval to find out which
+        // it was, which reads as the click having been missed. A zero-distance drag settles on
+        // mouse-up with nothing to disambiguate, so selection is immediate and a double click
+        // simply selects twice on its way to drilling.
+        .simultaneousGesture(
+            DragGesture(minimumDistance: 0)
+                .onEnded { value in
+                    // A remainder carries its parent's path, so clicking one selects the folder
+                    // it stands for rather than nothing at all.
+                    selection.select(
+                        snapshot.index.node(at: value.location)?.path, from: .treemap
+                    )
+                }
+        )
         // Kept interactive and visible while a new layout computes, with only a quiet hint
         // that work is happening.
         .opacity(isRecomputing ? 0.85 : 1)
@@ -142,49 +158,92 @@ struct TreemapCanvas: View {
         return parts.joined(separator: ", ")
     }
 
-    private func draw(_ context: inout GraphicsContext, size: CGSize) {
-        for node in snapshot.layout.nodes {
-            let rect = node.rect
-            guard rect.width >= 1, rect.height >= 1 else { continue }
-
-            let path = Path(rect)
-            context.fill(path, with: .color(coloring.color(for: node)))
-
-            // FR-028: without a boundary a viewer cannot tell which parent a rectangle belongs to.
-            if rect.width > 3, rect.height > 3 {
-                context.stroke(
-                    path,
-                    with: .color(.black.opacity(node.depth == 0 ? 0.35 : 0.22)),
-                    lineWidth: 0.5
-                )
-            }
-
-            if rect.width > 64, rect.height > 20 {
-                label(node, in: rect, context: &context)
-            }
-        }
-
-        // Both are draw-time only. Highlighting must never trigger a relayout, or a selection
-        // could not cross between the views inside SC-004's 100 ms.
-        if let hovered, hovered.rect.width > 2, hovered.rect.height > 2 {
-            context.stroke(Path(hovered.rect), with: .color(.primary.opacity(0.6)), lineWidth: 1.5)
-        }
-
-        if let selected = selectedNode, selected.rect.width > 2, selected.rect.height > 2 {
-            let path = Path(selected.rect.insetBy(dx: 1, dy: 1))
-            context.fill(path, with: .color(.white.opacity(0.18)))
-            context.stroke(path, with: .color(.white), lineWidth: 2.5)
-            context.stroke(Path(selected.rect), with: .color(.black.opacity(0.7)), lineWidth: 1)
-        }
-    }
-
     /// Resolved through the layout's path index rather than by scanning the node list, because
     /// this runs on every draw.
     private var selectedNode: TreemapNode? {
         selection.selectedPath.flatMap { snapshot.node(withPath: $0) }
     }
 
-    private func label(_ node: TreemapNode, in rect: CGRect, context: inout GraphicsContext) {
+    @ViewBuilder
+    private var readout: some View {
+        if let hovered {
+            HStack(spacing: 8) {
+                Circle()
+                    .fill(hovered.isRemainder ? Color.secondary : hovered.category.color)
+                    .frame(width: 8, height: 8)
+                Text(hovered.path)
+                    .lineLimit(1)
+                    .truncationMode(.head)
+                Spacer(minLength: 8)
+                if hovered.isRemainder {
+                    Text("\(hovered.collapsedCount) items")
+                        .foregroundStyle(.secondary)
+                }
+                Text(formatter.string(from: hovered.size))
+                    .monospacedDigit()
+            }
+            .font(.caption)
+            .padding(.horizontal, 10)
+            .padding(.vertical, 6)
+            .background(.thinMaterial)
+            .clipShape(.rect(cornerRadius: 6))
+            .padding(8)
+            .allowsHitTesting(false)
+        }
+    }
+
+    /// The outline is the accessible equivalent of this view (research R7); the canvas reports
+    /// what it is showing rather than pretending area is navigable by ear.
+    private var accessibilitySummary: String {
+        guard !snapshot.layout.isEmpty else { return "Treemap, empty" }
+        return "Treemap of \(snapshot.layout.nodes.count) regions totalling "
+            + formatter.string(from: snapshot.layout.displayedTotal)
+    }
+}
+
+/// Every rectangle, drawn once per layout.
+///
+/// Equatable on the layout's identity and the colouring, which is what lets SwiftUI skip the
+/// whole thing when the only change was where the pointer is.
+private struct TreemapBaseLayer: View, Equatable {
+    let snapshot: LayoutSnapshot
+    let coloring: TreemapColoring
+
+    static func == (lhs: Self, rhs: Self) -> Bool {
+        lhs.snapshot.id == rhs.snapshot.id && lhs.coloring == rhs.coloring
+    }
+
+    var body: some View {
+        Canvas(opaque: false) { context, _ in
+            for node in snapshot.layout.nodes {
+                let rect = node.rect
+                guard rect.width >= 1, rect.height >= 1 else { continue }
+
+                let path = Path(rect)
+                context.fill(path, with: .color(coloring.color(for: node)))
+
+                // FR-028: without a boundary a viewer cannot tell which parent a rectangle
+                // belongs to.
+                if rect.width > 3, rect.height > 3 {
+                    context.stroke(
+                        path,
+                        with: .color(.black.opacity(node.depth == 0 ? 0.35 : 0.22)),
+                        lineWidth: 0.5
+                    )
+                }
+
+                if rect.width > 64, rect.height > 20 {
+                    Self.label(node, in: rect, context: &context)
+                }
+            }
+        }
+    }
+
+    private static func label(
+        _ node: TreemapNode,
+        in rect: CGRect,
+        context: inout GraphicsContext
+    ) {
         let available = CGSize(width: rect.width - 8, height: rect.height - 6)
         guard available.width > 16, available.height > 10 else { return }
         guard let fitted = Self.fitted(node.name, within: available, context: context) else {
@@ -258,40 +317,30 @@ struct TreemapCanvas: View {
         }
         return nil
     }
+}
 
-    @ViewBuilder
-    private var readout: some View {
-        if let hovered {
-            HStack(spacing: 8) {
-                Circle()
-                    .fill(hovered.isRemainder ? Color.secondary : hovered.category.color)
-                    .frame(width: 8, height: 8)
-                Text(hovered.path)
-                    .lineLimit(1)
-                    .truncationMode(.head)
-                Spacer(minLength: 8)
-                if hovered.isRemainder {
-                    Text("\(hovered.collapsedCount) items")
-                        .foregroundStyle(.secondary)
-                }
-                Text(formatter.string(from: hovered.size))
-                    .monospacedDigit()
+/// Just the hover outline and the selection. Two shapes at most, so this is the only thing that
+/// has to be redrawn while the pointer moves.
+private struct TreemapOverlayLayer: View {
+    let hovered: TreemapNode?
+    let selected: TreemapNode?
+
+    var body: some View {
+        Canvas(opaque: false) { context, _ in
+            // Draw-time only. Highlighting must never trigger a relayout, or a selection could
+            // not cross between the views inside SC-004's 100 ms.
+            if let hovered, hovered.rect.width > 2, hovered.rect.height > 2 {
+                context.stroke(
+                    Path(hovered.rect), with: .color(.primary.opacity(0.6)), lineWidth: 1.5
+                )
             }
-            .font(.caption)
-            .padding(.horizontal, 10)
-            .padding(.vertical, 6)
-            .background(.thinMaterial)
-            .clipShape(.rect(cornerRadius: 6))
-            .padding(8)
-            .allowsHitTesting(false)
-        }
-    }
 
-    /// The outline is the accessible equivalent of this view (research R7); the canvas reports
-    /// what it is showing rather than pretending area is navigable by ear.
-    private var accessibilitySummary: String {
-        guard !snapshot.layout.isEmpty else { return "Treemap, empty" }
-        return "Treemap of \(snapshot.layout.nodes.count) regions totalling "
-            + formatter.string(from: snapshot.layout.displayedTotal)
+            if let selected, selected.rect.width > 2, selected.rect.height > 2 {
+                let path = Path(selected.rect.insetBy(dx: 1, dy: 1))
+                context.fill(path, with: .color(.white.opacity(0.18)))
+                context.stroke(path, with: .color(.white), lineWidth: 2.5)
+                context.stroke(Path(selected.rect), with: .color(.black.opacity(0.7)), lineWidth: 1)
+            }
+        }
     }
 }

@@ -71,6 +71,13 @@ private struct NodeRow: View {
     var startsExpanded: Bool = false
 
     @State private var isExpanded = false
+    /// Sorted once per ordering rather than once per render.
+    ///
+    /// Every row observes the shared selection, so a single click re-renders all of them. With
+    /// the sort inline, that meant re-sorting every expanded folder's children on every click —
+    /// seven milliseconds apiece for a folder of fifty thousand, which is what made clicking
+    /// large folders feel unreliable.
+    @State private var sortedChildren: [ScannedItem] = []
 
     var body: some View {
         if item.children.isEmpty {
@@ -79,7 +86,7 @@ private struct NodeRow: View {
             DisclosureGroup(isExpanded: $isExpanded) {
                 // Siblings within a directory always have distinct names, so the name is a valid
                 // identity here and costs nothing to derive.
-                ForEach(sortOrder.sort(item.children), id: \.name) { child in
+                ForEach(sortedChildren, id: \.name) { child in
                     NodeRow(
                         item: child,
                         path: path + "/" + child.name,
@@ -92,6 +99,7 @@ private struct NodeRow: View {
             } label: {
                 label
             }
+            .task(id: sortOrder) { sortedChildren = sortOrder.sort(item.children) }
             .onAppear { if startsExpanded { isExpanded = true } }
             // Opened only when something below it was selected in the treemap. Never closed here,
             // because collapsing a folder the user opened themselves would be its own bug.

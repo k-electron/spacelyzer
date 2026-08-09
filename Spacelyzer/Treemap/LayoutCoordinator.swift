@@ -7,6 +7,9 @@ import SwiftUI
 nonisolated struct LayoutSnapshot: Sendable {
     let layout: TreemapLayout
     let index: SpatialIndex
+    /// Identity for the rectangles as a whole. Comparing it is how the drawing of twenty thousand
+    /// rectangles is skipped when only the pointer moved.
+    let id: UUID
     /// Path to position in `layout.nodes`, so highlighting the selection is a lookup rather than
     /// a scan of every rectangle on every draw.
     private let positionsByPath: [String: Int]
@@ -14,6 +17,7 @@ nonisolated struct LayoutSnapshot: Sendable {
     init(layout: TreemapLayout, index: SpatialIndex) {
         self.layout = layout
         self.index = index
+        id = UUID()
 
         // Remainders are skipped deliberately: one carries the path of the parent it stands for,
         // so indexing it would shadow the real rectangle of that folder.
