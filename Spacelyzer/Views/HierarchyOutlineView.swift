@@ -31,6 +31,15 @@ struct HierarchyOutlineView: View {
     let sortOrder: SortOrder
     let selection: SelectionCoordinator
 
+    /// Which folders are open, held here rather than in each row.
+    ///
+    /// With the flag on the row, revealing something deep took one render pass per level: a row
+    /// could only react to the selection once its parent had opened and rendered it. The scroll
+    /// then raced that cascade and often arrived before the destination row existed, which is
+    /// what made following the treemap into the tree unreliable. Held together, every ancestor
+    /// opens in a single pass and the row is there to scroll to.
+    @State private var expanded: Set<String> = []
+
     var body: some View {
         ScrollViewReader { proxy in
             List {
@@ -41,23 +50,45 @@ struct HierarchyOutlineView: View {
                     formatter: formatter,
                     sortOrder: sortOrder,
                     selection: selection,
-                    startsExpanded: true
+                    expanded: $expanded
                 )
             }
             .listStyle(.inset)
+            .onAppear { expanded.insert(rootPath) }
             .onChange(of: selection.revealToken) { _, _ in
-                guard let path = selection.selectedPath else { return }
-                // The rows on the way down expand from the same change, so the destination row
-                // does not exist yet at this instant. One turn of the run loop is enough for it
-                // to appear, and well inside the 100 ms SC-004 allows.
-                Task {
-                    try? await Task.sleep(for: .milliseconds(40))
-                    withAnimation(.easeOut(duration: 0.15)) {
-                        proxy.scrollTo(path, anchor: .center)
-                    }
+                reveal(proxy: proxy)
+            }
+        }
+    }
+
+    private func reveal(proxy: ScrollViewProxy) {
+        guard let path = selection.selectedPath else { return }
+        expanded.formUnion(Self.ancestors(of: path, under: rootPath))
+
+        Task {
+            // Opening the ancestors and laying the new rows out are still two separate passes,
+            // so the scroll waits a turn. Retried a few times because a very deep reveal can
+            // take more than one, and scrolling to a row that does not exist yet does nothing.
+            for attempt in 0..<5 {
+                try? await Task.sleep(for: .milliseconds(attempt == 0 ? 40 : 60))
+                withAnimation(.easeOut(duration: 0.15)) {
+                    proxy.scrollTo(path, anchor: .center)
                 }
             }
         }
+    }
+
+    /// Every folder between the root and this path, the root included.
+    static func ancestors(of path: String, under rootPath: String) -> Set<String> {
+        guard path.hasPrefix(rootPath) else { return [] }
+
+        var result: Set<String> = [rootPath]
+        var current = rootPath
+        for component in path.dropFirst(rootPath.count).split(separator: "/").dropLast() {
+            current += "/" + component
+            result.insert(current)
+        }
+        return result
     }
 }
 
@@ -68,9 +99,7 @@ private struct NodeRow: View {
     let formatter: SizeFormatter
     let sortOrder: SortOrder
     let selection: SelectionCoordinator
-    var startsExpanded: Bool = false
-
-    @State private var isExpanded = false
+    @Binding var expanded: Set<String>
     /// Sorted once per ordering rather than once per render.
     ///
     /// Every row observes the shared selection, so a single click re-renders all of them. With
@@ -79,11 +108,20 @@ private struct NodeRow: View {
     /// large folders feel unreliable.
     @State private var sortedChildren: [ScannedItem] = []
 
+    private var isExpanded: Binding<Bool> {
+        Binding(
+            get: { expanded.contains(path) },
+            set: { isOpen in
+                if isOpen { expanded.insert(path) } else { expanded.remove(path) }
+            }
+        )
+    }
+
     var body: some View {
         if item.children.isEmpty {
             label
         } else {
-            DisclosureGroup(isExpanded: $isExpanded) {
+            DisclosureGroup(isExpanded: isExpanded) {
                 // Siblings within a directory always have distinct names, so the name is a valid
                 // identity here and costs nothing to derive.
                 ForEach(sortedChildren, id: \.name) { child in
@@ -93,19 +131,14 @@ private struct NodeRow: View {
                         parentTotal: item.cumulativeSize,
                         formatter: formatter,
                         sortOrder: sortOrder,
-                        selection: selection
+                        selection: selection,
+                        expanded: $expanded
                     )
                 }
             } label: {
                 label
             }
             .task(id: sortOrder) { sortedChildren = sortOrder.sort(item.children) }
-            .onAppear { if startsExpanded { isExpanded = true } }
-            // Opened only when something below it was selected in the treemap. Never closed here,
-            // because collapsing a folder the user opened themselves would be its own bug.
-            .onChange(of: selection.revealToken) { _, _ in
-                if selection.isOnPathToSelection(path) { isExpanded = true }
-            }
         }
     }
 
@@ -217,7 +250,8 @@ private struct ShareBar: View {
         .frame(width: Self.width, height: 14)
         .contentShape(.rect)
         .onHover { isHovering = $0 }
-        .help(text ?? "")
+        // No tooltip alongside the hover swap. It would install a second tracking mechanism on
+        // every row in the tree to say what the row already says when pointed at.
         .accessibilityHidden(true)
     }
 

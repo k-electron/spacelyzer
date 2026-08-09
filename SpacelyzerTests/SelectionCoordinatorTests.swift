@@ -114,3 +114,36 @@ struct SelectionCoordinatorTests {
         #expect(selection.selectedPath == nil)
     }
 }
+
+@MainActor
+@Suite("Revealing a selection in the outline")
+struct OutlineRevealTests {
+
+    @Test("Every folder between the root and the selection is opened at once")
+    func ancestorsAreCollectedInOnePass() {
+        let opened = HierarchyOutlineView.ancestors(
+            of: "/scan/a/b/c/file.bin", under: "/scan"
+        )
+
+        // All of them together, because opening them one level per render pass is what left the
+        // scroll arriving before its destination row existed.
+        #expect(opened == ["/scan", "/scan/a", "/scan/a/b", "/scan/a/b/c"])
+    }
+
+    @Test("A selection directly in the root opens only the root")
+    func shallowSelectionOpensRootOnly() {
+        #expect(
+            HierarchyOutlineView.ancestors(of: "/scan/file.bin", under: "/scan") == ["/scan"]
+        )
+    }
+
+    @Test("A path outside the root opens nothing")
+    func foreignPathOpensNothing() {
+        #expect(HierarchyOutlineView.ancestors(of: "/elsewhere/x", under: "/scan").isEmpty)
+    }
+
+    @Test("Selecting the root itself opens the root")
+    func rootSelectsItself() {
+        #expect(HierarchyOutlineView.ancestors(of: "/scan", under: "/scan") == ["/scan"])
+    }
+}
