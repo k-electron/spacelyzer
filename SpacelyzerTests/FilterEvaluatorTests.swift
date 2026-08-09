@@ -183,6 +183,52 @@ struct FilterEvaluatorTests {
         #expect(real.isEmpty == false)
     }
 
+    @Test("Every condition in force is spelled out so it can be undone deliberately")
+    func activeConditionsAreDescribed() {
+        var filter = Filter()
+        filter.text = "report"
+        filter.categories = [.document]
+        filter.fileExtensions = ["pdf"]
+        filter.minimumSize = 1_000_000
+        filter.maximumSize = 1_000_000_000
+        filter.modifiedAfter = Date(timeIntervalSince1970: 0)
+
+        let described = filter.descriptions(sizes: SizeFormatter())
+
+        #expect(described.contains { $0.contains("report") })
+        #expect(described.contains("documents"))
+        #expect(described.contains(".pdf"))
+        #expect(described.contains { $0.hasPrefix("larger than") })
+        #expect(described.contains { $0.hasPrefix("smaller than") })
+        #expect(described.contains { $0.hasPrefix("modified after") })
+        #expect(Filter().descriptions(sizes: SizeFormatter()).isEmpty)
+    }
+
+    @Test("A size band takes both bounds at once")
+    func sizeBandDescribesBothEnds() {
+        var band = Filter()
+        band.minimumSize = 1_000_000
+        band.maximumSize = 10_000_000
+
+        // FR-039 asks for a minimum, a maximum, or both; the bar offers both independently.
+        #expect(band.descriptions(sizes: SizeFormatter()).count == 2)
+        #expect(band.matches(file("mid.bin", 5_000_000)))
+        #expect(band.matches(file("small.bin", 500)) == false)
+        #expect(band.matches(file("huge.bin", 50_000_000)) == false)
+    }
+
+    @Test("A date range reads as a range rather than as two loose ends")
+    func dateRangeIsDescribedAsOne() {
+        var between = Filter()
+        between.modifiedAfter = Date(timeIntervalSince1970: 0)
+        between.modifiedBefore = Date(timeIntervalSince1970: 100_000_000)
+
+        let described = between.descriptions(sizes: SizeFormatter())
+
+        #expect(described.count == 1)
+        #expect(described[0].contains(" to "))
+    }
+
     @Test("A filter matching nothing says so rather than returning everything")
     func noMatchesIsDistinctFromNoFilter() {
         var filter = Filter()

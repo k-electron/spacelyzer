@@ -63,4 +63,36 @@ nonisolated struct Filter: Sendable, Equatable {
             .lowercased()
         return trimmed.isEmpty ? nil : trimmed
     }
+
+    /// Every condition in force, spelled out one per phrase.
+    ///
+    /// Lives here rather than in the bar that draws them: a filter the user cannot see is one
+    /// they cannot undo deliberately (FR-041), which makes this worth testing without a view.
+    func descriptions(sizes: SizeFormatter) -> [String] {
+        var parts: [String] = []
+
+        let needle = text.trimmingCharacters(in: .whitespaces)
+        if !needle.isEmpty { parts.append("name contains “\(needle)”") }
+
+        for category in categories.sorted(by: { $0.label < $1.label }) {
+            parts.append(category.label.lowercased())
+        }
+        for suffix in fileExtensions.sorted() {
+            parts.append(".\(suffix)")
+        }
+        if let minimumSize { parts.append("larger than \(sizes.string(from: minimumSize))") }
+        if let maximumSize { parts.append("smaller than \(sizes.string(from: maximumSize))") }
+
+        func day(_ date: Date) -> String {
+            date.formatted(date: .abbreviated, time: .omitted)
+        }
+        switch (modifiedAfter, modifiedBefore) {
+        case let (after?, before?): parts.append("modified \(day(after)) to \(day(before))")
+        case let (after?, nil): parts.append("modified after \(day(after))")
+        case let (nil, before?): parts.append("modified before \(day(before))")
+        case (nil, nil): break
+        }
+
+        return parts
+    }
 }

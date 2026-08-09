@@ -22,6 +22,7 @@ struct FilterBarView: View {
                     .frame(maxWidth: 220)
 
                 sizeMenu
+                dateMenu
                 categoryMenu
                 extensionField
 
@@ -54,16 +55,54 @@ struct FilterBarView: View {
     }
 
     /// Thresholds rather than a free number field. Someone hunting for space thinks in "bigger
-    /// than about a gigabyte", not in bytes.
+    /// than about a gigabyte", not in bytes. Both bounds can be set at once, which is what makes
+    /// "between 100 MB and 1 GB" reachable (FR-039).
     private var sizeMenu: some View {
         Menu {
-            Button("Any size") { withMinimum(nil) }
-            Divider()
-            ForEach(Self.thresholds, id: \.bytes) { threshold in
-                Button("Larger than \(threshold.label)") { withMinimum(threshold.bytes) }
+            Button("Any size") {
+                var next = filter
+                next.minimumSize = nil
+                next.maximumSize = nil
+                onChange(next)
+            }
+            Section("Larger than") {
+                ForEach(Self.thresholds, id: \.bytes) { threshold in
+                    Button(threshold.label) { withMinimum(threshold.bytes) }
+                }
+            }
+            Section("Smaller than") {
+                ForEach(Self.thresholds, id: \.bytes) { threshold in
+                    Button(threshold.label) { withMaximum(threshold.bytes) }
+                }
             }
         } label: {
-            Label(minimumLabel, systemImage: "arrow.up.arrow.down")
+            Label(sizeLabel, systemImage: "arrow.up.arrow.down")
+        }
+        .menuStyle(.borderlessButton)
+        .fixedSize()
+    }
+
+    /// Relative spans rather than a calendar. The question people actually have is "what have I
+    /// not touched in a year", not "what changed on the fourteenth" (FR-040).
+    private var dateMenu: some View {
+        Menu {
+            Button("Any time") { withDates(after: nil, before: nil) }
+            Section("Modified within") {
+                ForEach(Self.spans, id: \.days) { span in
+                    Button(span.label) {
+                        withDates(after: Self.daysAgo(span.days), before: nil)
+                    }
+                }
+            }
+            Section("Untouched for over") {
+                ForEach(Self.spans, id: \.days) { span in
+                    Button(span.label) {
+                        withDates(after: nil, before: Self.daysAgo(span.days))
+                    }
+                }
+            }
+        } label: {
+            Label(dateLabel, systemImage: "calendar")
         }
         .menuStyle(.borderlessButton)
         .fixedSize()
@@ -150,9 +189,40 @@ struct FilterBarView: View {
         onChange(next)
     }
 
-    private var minimumLabel: String {
-        guard let minimum = filter.minimumSize else { return "Any size" }
-        return "> \(formatter.string(from: minimum))"
+    private func withMaximum(_ bytes: Int64?) {
+        var next = filter
+        next.maximumSize = bytes
+        onChange(next)
+    }
+
+    private func withDates(after: Date?, before: Date?) {
+        var next = filter
+        next.modifiedAfter = after
+        next.modifiedBefore = before
+        onChange(next)
+    }
+
+    private var sizeLabel: String {
+        switch (filter.minimumSize, filter.maximumSize) {
+        case let (minimum?, maximum?):
+            "\(formatter.string(from: minimum))–\(formatter.string(from: maximum))"
+        case let (minimum?, nil): "> \(formatter.string(from: minimum))"
+        case let (nil, maximum?): "< \(formatter.string(from: maximum))"
+        case (nil, nil): "Any size"
+        }
+    }
+
+    private var dateLabel: String {
+        switch (filter.modifiedAfter, filter.modifiedBefore) {
+        case (nil, nil): "Any time"
+        case (_?, nil): "Recent"
+        case (nil, _?): "Older"
+        case (_?, _?): "Date range"
+        }
+    }
+
+    private static func daysAgo(_ days: Int) -> Date {
+        Calendar.current.date(byAdding: .day, value: -days, to: .now) ?? .now
     }
 
     private var categoryLabel: String {
@@ -163,28 +233,8 @@ struct FilterBarView: View {
         }
     }
 
-    /// Every condition in force, spelled out. A filter the user cannot see is one they cannot
-    /// undo deliberately.
     private var activeDescriptions: [String] {
-        var parts: [String] = []
-        let needle = filter.text.trimmingCharacters(in: .whitespaces)
-        if !needle.isEmpty { parts.append("name contains “\(needle)”") }
-        for category in filter.categories.sorted(by: { $0.label < $1.label }) {
-            parts.append(category.label.lowercased())
-        }
-        for suffix in filter.fileExtensions.sorted() {
-            parts.append(".\(suffix)")
-        }
-        if let minimum = filter.minimumSize {
-            parts.append("larger than \(formatter.string(from: minimum))")
-        }
-        if let maximum = filter.maximumSize {
-            parts.append("smaller than \(formatter.string(from: maximum))")
-        }
-        if filter.modifiedAfter != nil || filter.modifiedBefore != nil {
-            parts.append("modified in range")
-        }
-        return parts
+        filter.descriptions(sizes: formatter)
     }
 
     private static let thresholds: [(label: String, bytes: Int64)] = [
@@ -193,6 +243,14 @@ struct FilterBarView: View {
         ("100 MB", 100_000_000),
         ("1 GB", 1_000_000_000),
         ("10 GB", 10_000_000_000),
+    ]
+
+    private static let spans: [(label: String, days: Int)] = [
+        ("7 days", 7),
+        ("30 days", 30),
+        ("6 months", 182),
+        ("1 year", 365),
+        ("2 years", 730),
     ]
 }
 
