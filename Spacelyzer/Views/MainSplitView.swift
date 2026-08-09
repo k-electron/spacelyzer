@@ -215,7 +215,7 @@ struct MainSplitView: View {
                     Button {
                         if let picked = broker.chooseFolder() { beginScan(picked) }
                     } label: {
-                        Label("Scan Another…", systemImage: "folder.badge.magnifyingglass")
+                        Label("New Analysis…", systemImage: "folder.badge.magnifyingglass")
                     }
                     .controlSize(.small)
                 }
@@ -231,7 +231,7 @@ struct MainSplitView: View {
     private var startPane: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 16) {
-                section("Choose something to measure") {
+                section("Choose something to analyze") {
                     ForEach(volumes) { volume in
                         Button {
                             beginScan(volume.url)

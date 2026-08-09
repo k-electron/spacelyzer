@@ -23,7 +23,7 @@ final class SpacelyzerUITests: XCTestCase {
         let app = launchApp()
 
         XCTAssertTrue(
-            app.staticTexts["Choose something to measure"].waitForExistence(timeout: 10),
+            app.staticTexts["Choose something to analyze"].waitForExistence(timeout: 10),
             "The start pane should invite the user to pick something to scan"
         )
         XCTAssertTrue(
@@ -39,7 +39,7 @@ final class SpacelyzerUITests: XCTestCase {
         let app = launchApp()
 
         XCTAssertTrue(
-            app.staticTexts["Choose something to measure"].waitForExistence(timeout: 10),
+            app.staticTexts["Choose something to analyze"].waitForExistence(timeout: 10),
             "The leading pane should offer somewhere to start"
         )
         XCTAssertTrue(
