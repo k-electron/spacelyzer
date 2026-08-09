@@ -40,7 +40,7 @@ decided in plan.md. Tests under `SpacelyzerTests/` and `SpacelyzerUITests/`.
 - [X] T002 Replace the placeholder list in `Spacelyzer/ContentView.swift` with an empty root view
 - [X] T003 [P] Create the capability folders `Access/`, `Scanning/`, `Accounting/`, `Analysis/`, `Treemap/`, `Cleanup/`, `Models/`, `Views/`, `Support/` under `Spacelyzer/`
 - [X] T004 Set `SWIFT_VERSION` to 6.0 for all targets in `Spacelyzer.xcodeproj/project.pbxproj` and resolve any strict-concurrency errors that surface
-- [ ] T005 [P] Grant the UI test runner automation permission so `xcodebuild test` can start, per the prerequisite in `specs/001-disk-space-explorer/quickstart.md` (environment task, blocks merge gate 2)
+- [X] T005 [P] Grant the UI test runner automation permission so `xcodebuild test` can start, per the prerequisite in `specs/001-disk-space-explorer/quickstart.md` (environment task, blocks merge gate 2)
 - [X] T006 [P] Create the temporary-directory fixture builder in `SpacelyzerTests/Fixtures/FixtureTree.swift` supporting known sizes, hard links, symlinks, unreadable directories, and generated trees of arbitrary node count
 
 ---
@@ -99,7 +99,7 @@ with partial results retained.
 - [X] T033 [US1] Add largest-first default ordering plus sorting by name, size, item count, and date modified in `Spacelyzer/Views/HierarchyOutlineView.swift` (FR-024)
 - [X] T034 [US1] Add full keyboard navigation for expand, collapse, and traversal in `Spacelyzer/Views/HierarchyOutlineView.swift` (FR-025)
 - [X] T035 [US1] Build the scan progress and cancellation UI in `Spacelyzer/Views/ScanProgressView.swift` (FR-003, FR-004)
-- [ ] T036 [US1] Implement recent locations and rescan in `Spacelyzer/Access/RecentLocations.swift` (FR-009)
+- [X] T036 [US1] Implement recent locations and rescan in `Spacelyzer/Access/RecentLocations.swift` (FR-009)
 - [X] T037 [US1] Present skipped locations with their reasons in `Spacelyzer/Views/SkippedLocationsView.swift` (FR-005)
 
 **Checkpoint**: A usable disk analyzer — scan, browse, cancel, rescan
