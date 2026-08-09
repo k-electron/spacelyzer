@@ -94,6 +94,50 @@ final class SpacelyzerUITests: XCTestCase {
         )
     }
 
+    /// Opening the details panel takes its width from the picture, not from the tree, and takes it
+    /// rather than covering it.
+    ///
+    /// Both halves of that failed at once: the treemap had been given a fixed width equal to its
+    /// last drawn size, so it refused to shrink and the panel opened on top of it, and the split
+    /// container underneath answered by squeezing the tree as well. Measured rather than eyeballed
+    /// because the overlap was only visible as the panel's translucency picking up what was
+    /// behind it.
+    @MainActor
+    func testDetailsPanelTakesItsWidthFromThePictureAlone() throws {
+        let app = launchApp()
+
+        let toggle = app.buttons["Details"]
+        XCTAssertTrue(toggle.waitForExistence(timeout: 10))
+
+        // The segmented picker is centred in the trailing pane, and the empty-state text in the
+        // panel, so between them the two dividers can be located without private geometry.
+        func pickerCentre() -> CGFloat {
+            app.radioButtons["Treemap"].frame.union(app.radioButtons["Totals"].frame).midX
+        }
+
+        let window = app.windows.firstMatch.frame
+        let leadingClosed = 2 * pickerCentre() - window.maxX - window.minX
+
+        toggle.click()
+        let empty = app.staticTexts["Nothing selected"]
+        XCTAssertTrue(empty.waitForExistence(timeout: 5))
+
+        let panelLeft = 2 * empty.frame.midX - window.maxX
+        let leadingOpen = 2 * pickerCentre() - panelLeft - window.minX
+
+        XCTAssertGreaterThan(
+            window.maxX - panelLeft, 0, "The details panel should occupy real width"
+        )
+        XCTAssertEqual(
+            leadingOpen, leadingClosed, accuracy: 2,
+            "Opening the details panel should not move the tree"
+        )
+        XCTAssertEqual(
+            app.windows.firstMatch.frame.width, window.width, accuracy: 2,
+            "Opening the details panel should not resize the window"
+        )
+    }
+
     /// Sorting is a real control, not decoration. This guards the defect where the picker was
     /// wired to nothing because OutlineGroup could not see the selected order.
     @MainActor

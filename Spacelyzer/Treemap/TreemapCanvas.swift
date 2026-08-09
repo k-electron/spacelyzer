@@ -73,28 +73,33 @@ struct TreemapCanvas: View {
     private static let accessibleNodeLimit = 100
 
     var body: some View {
-        ZStack(alignment: .topLeading) {
-            ZStack {
-                // Two layers on purpose. The rectangles depend only on the layout and the
-                // colouring, so pointing at something redraws the thin overlay instead of all
-                // twenty thousand of them. Drawing everything on every pointer move saturated the
-                // main thread on large folders, and clicks arriving behind that backlog were what
-                // felt flaky.
-                TreemapBaseLayer(snapshot: snapshot, coloring: coloring).equatable()
+        // The picture hangs off something with no size of its own. It is drawn at the size it was
+        // laid out for and stretched to whatever the pane is now, because a new size arrives every
+        // frame while the details panel slides or a window edge is dragged and no layout can keep
+        // up with that. Stretching is a transform on a picture already drawn; squarifying the tree
+        // a dozen times over is not.
+        //
+        // In an overlay so that the size it was laid out for cannot become a size the pane has to
+        // be. A fixed frame in the layout made the treemap refuse to shrink below its last drawn
+        // width, which left the details panel nowhere to open but on top of it.
+        Color.clear
+            .overlay(alignment: .topLeading) {
+                ZStack {
+                    // Two layers on purpose. The rectangles depend only on the layout and the
+                    // colouring, so pointing at something redraws the thin overlay instead of all
+                    // twenty thousand of them. Drawing everything on every pointer move saturated
+                    // the main thread on large folders, and clicks arriving behind that backlog
+                    // were what felt flaky.
+                    TreemapBaseLayer(snapshot: snapshot, coloring: coloring).equatable()
 
-                TreemapOverlayLayer(hovered: hovered, selected: selectedNode)
-                    .allowsHitTesting(false)
+                    TreemapOverlayLayer(hovered: hovered, selected: selectedNode)
+                        .allowsHitTesting(false)
+                }
+                .frame(width: drawnSize.width, height: drawnSize.height)
+                .scaleEffect(x: stretch.width, y: stretch.height, anchor: .topLeading)
             }
-            // Kept at the size it was laid out for and stretched to whatever the pane is now.
-            // A new size arrives every frame while the details panel slides or a window edge is
-            // dragged, and no layout can keep up with that, so the picture already drawn is
-            // stretched to fit and replaced once the size holds still. A transform is free where
-            // squarifying the tree twelve times over is not.
-            .frame(width: drawnSize.width, height: drawnSize.height)
-            .scaleEffect(x: stretch.width, y: stretch.height, anchor: .topLeading)
-        }
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-        .clipped()
+            .clipped()
+            .contentShape(.rect)
         // Not a GeometryReader reporting through onChange. That pattern misses changes when the
         // container resizes without the child's identity changing, which is exactly what dragging
         // a window edge or a split divider does, and it left the treemap drawn at its first size.

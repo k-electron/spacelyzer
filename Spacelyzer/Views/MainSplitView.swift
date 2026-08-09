@@ -47,19 +47,30 @@ struct MainSplitView: View {
     static let defaultWindowSize = CGSize(width: 1280, height: 820)
 
     var body: some View {
-        HSplitView {
-            // A third of the window to start with. The tree is names and numbers and stops being
-            // more readable past a point, whereas the picture keeps using whatever it is given.
+        // Not HSplitView. That one ignores an ideal width outright — it divided the window in half
+        // whatever the panes asked for — and it reports an intrinsic size that overrode the
+        // window's default size as well. This honours both, which is what puts the divider at a
+        // third and opens the window at a size somebody chose.
+        NavigationSplitView {
+            // A third to start with. The tree is names and numbers and stops being more readable
+            // past a point, whereas the picture keeps using whatever it is given.
             leadingPane
-                .frame(
-                    minWidth: 320,
-                    idealWidth: Self.defaultWindowSize.width / 3,
-                    maxHeight: .infinity
+                .navigationSplitViewColumnWidth(
+                    min: 300,
+                    ideal: Self.defaultWindowSize.width / 3,
+                    max: 900
                 )
+        } detail: {
             trailingPane
-                .frame(minWidth: 320, maxWidth: .infinity, maxHeight: .infinity)
+                .navigationSplitViewColumnWidth(
+                    min: 320,
+                    ideal: Self.defaultWindowSize.width * 2 / 3
+                )
         }
-        .frame(minWidth: 900, minHeight: 560)
+        // Balanced keeps the tree a column beside the picture. The automatic style would let it
+        // slide over the top as an overlay, which is the arrangement this pane exists not to be.
+        .navigationSplitViewStyle(.balanced)
+        .frame(minHeight: 560)
         // Beside the views rather than replacing one of them. Deciding what a four-gigabyte file
         // is means looking at it and at where it sits in the scan at the same time.
         .inspector(isPresented: $showingDetails) {

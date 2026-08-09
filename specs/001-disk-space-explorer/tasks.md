@@ -254,6 +254,7 @@ app, that reveal opens the right folder, and that the reported path, sizes, and 
 - [X] T092a [US6] Present the panel as an inspector column beside both views, closed until asked for and closed again when an analysis starts, with a UI test in `SpacelyzerUITests/SpacelyzerUITests.swift` — deciding what a large file is means seeing it and its place in the scan at once, so it could not displace either view
 - [X] T092b [US6] Keep the selection watched inside the details pane rather than in `MainSplitView`, walk the tree off the main actor, and let the preview settle before Quick Look is asked — reading the selection at the top of the window made every click rebuild both panes, the legend, and an exclusion fetch
 - [X] T092c [US6] Coalesce treemap resizes and stretch the drawn layout until the new one lands in `Spacelyzer/Treemap/LayoutCoordinator.swift` and `TreemapCanvas.swift` — squarifying has no cancellation point, so a moving pane had a dozen full layouts running at once
+- [X] T092d [US6] Move the window to `NavigationSplitView` and keep the stretched treemap out of the layout, with a measured regression test in `SpacelyzerUITests/SpacelyzerUITests.swift` — `HSplitView` ignored both panes' ideal widths and split the window in half, and the stretched canvas had been given a fixed frame that stopped the treemap shrinking, so the details panel opened on top of it
 
 **Checkpoint**: Nothing gets deleted sight-unseen
 
