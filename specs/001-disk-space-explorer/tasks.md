@@ -117,22 +117,25 @@ named with its own size.
 
 ### Tests for User Story 2
 
-- [ ] T038 [P] [US2] Test that measured plus every unaccounted entry reconciles to volume used within 1% in `SpacelyzerTests/VolumeAccountantTests.swift` (SC-007)
-- [ ] T039 [P] [US2] Test that an unattributable remainder is always named and sized, never omitted or zeroed, in `SpacelyzerTests/VolumeAccountantTests.swift` (SC-008)
-- [ ] T040 [P] [US2] Test that a snapshot sizing failure falls through to the residual with its reason stated in `SpacelyzerTests/SnapshotReaderTests.swift` (FR-017)
-- [ ] T041 [P] [US2] Test that an excluded folder is reported distinctly from a permission-denied one in `SpacelyzerTests/ExclusionTests.swift` (FR-012)
-- [ ] T042 [P] [US2] Test that excluding the scan root is refused in `SpacelyzerTests/ExclusionTests.swift` (FR-012)
+- [X] T038 [P] [US2] Test that measured plus every unaccounted entry reconciles to volume used within 1% in `SpacelyzerTests/VolumeAccountantTests.swift` (SC-007)
+- [X] T039 [P] [US2] Test that an unattributable remainder is always named and sized, never omitted or zeroed, in `SpacelyzerTests/VolumeAccountantTests.swift` (SC-008)
+- [X] T040 [P] [US2] Test that a snapshot sizing failure falls through to the residual with its reason stated in `SpacelyzerTests/SnapshotReaderTests.swift` (FR-017)
+- [X] T041 [P] [US2] Test that an excluded folder is reported distinctly from a permission-denied one in `SpacelyzerTests/ExclusionTests.swift` (FR-012)
+- [X] T042 [P] [US2] Test that excluding the scan root is refused in `SpacelyzerTests/ExclusionTests.swift` (FR-012)
 
 ### Implementation for User Story 2
 
-- [ ] T043 [US2] Implement `VolumeAccountant` in `Spacelyzer/Accounting/VolumeAccountant.swift` reading total capacity, available capacity, and available-for-important-usage, deriving purgeable space from the difference (research R4)
-- [ ] T044 [US2] Implement snapshot sizing behind a single interface in `Spacelyzer/Accounting/SnapshotReader.swift`, invoking `diskutil apfs listSnapshots`, treating its output as untrusted, and degrading to the residual on any parse failure (FR-017)
-- [ ] T045 [US2] Implement unaccounted-space itemization covering permission denied, user excluded, purgeable, snapshots, and unattributed in `Spacelyzer/Accounting/UnaccountedSpace.swift` (FR-016)
-- [ ] T046 [US2] Implement Full Disk Access state detection and the System Settings deep link in `Spacelyzer/Access/AccessBroker.swift` (FR-018)
-- [ ] T047 [US2] Detect a later access grant and offer a rescan in `Spacelyzer/Access/AccessBroker.swift` (FR-019)
-- [ ] T048 [US2] Warn before results are shown, naming each protected location that will be missing, in `Spacelyzer/Views/AccessWarningView.swift` (FR-018)
-- [ ] T049 [US2] Implement exclusion rule management with persistence, root-exclusion refusal, and marking existing scans stale in `Spacelyzer/Access/ExclusionRules.swift` (FR-010 through FR-013)
-- [ ] T050 [US2] Build the accounting panel in `Spacelyzer/Views/VolumeAccountingView.swift` showing capacity, used, free, measured, and each itemized cause with a plain-language explanation (FR-014 through FR-017)
+- [X] T043 [US2] Implement `VolumeAccountant` in `Spacelyzer/Accounting/VolumeAccountant.swift` reading total capacity, available capacity, and available-for-important-usage, deriving purgeable space from the difference (research R4)
+- [X] T044 [US2] Implement snapshot reading behind a single interface in `Spacelyzer/Accounting/SnapshotReader.swift`, invoking `diskutil apfs listSnapshots -plist`, treating its output as untrusted, and degrading to the residual on any parse failure (FR-017) — the task said "sizing", which turned out to be impossible: the tool reports no size field at all, so the degrade path is the only path. Research R4 records the corrected finding.
+- [X] T045 [US2] Implement unaccounted-space itemization covering permission denied, user excluded, other volumes, snapshots, the unscanned rest of a volume, and unattributed in `Spacelyzer/Accounting/UnaccountedSpace.swift` (FR-016) — purgeable was dropped from the itemization and moved to an annotation on used space per FR-017a, and two causes the original list did not anticipate were added
+- [X] T046 [US2] Implement Full Disk Access state detection and the System Settings deep link in `Spacelyzer/Access/AccessBroker.swift` (FR-018)
+- [X] T047 [US2] Detect a later access grant and offer a rescan in `Spacelyzer/Access/AccessBroker.swift` (FR-019)
+- [X] T048 [US2] Warn before results are shown, naming each protected location that will be missing, in `Spacelyzer/Views/AccessWarningView.swift` (FR-018)
+- [X] T049 [US2] Implement exclusion rule management with persistence, root-exclusion refusal, and marking existing scans stale in `Spacelyzer/Access/ExclusionRules.swift` (FR-010 through FR-013)
+- [X] T050 [US2] Build the accounting panel in `Spacelyzer/Views/VolumeAccountingView.swift` showing capacity, used, free, measured, and each itemized cause with a plain-language explanation (FR-014 through FR-017)
+- [X] T050a [US2] Read the APFS container layout in `Spacelyzer/Accounting/ContainerReader.swift` so volumes sharing the drive can be named (FR-016) — not in the original breakdown; without it the unexplained remainder is 5.95% on a stock Mac and SC-007 cannot pass
+- [X] T050b [US2] Isolate every `diskutil` invocation behind one seam in `Spacelyzer/Accounting/DiskUtility.swift`, as the constitution's platform constraints require, with parsing above it so it can be tested against captured output
+- [X] T050c [US2] Build the exclusion list editor in `Spacelyzer/Views/ExclusionsSheet.swift` — not in the original breakdown, and FR-010 and FR-011 cannot be met without it, since T049 delivers only the model layer
 
 **Checkpoint**: The numbers add up and the user can see why
 

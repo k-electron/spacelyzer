@@ -92,42 +92,97 @@ surfaced there rather than silently absorbed.
 **Decision**: Read `volumeTotalCapacityKey`, `volumeAvailableCapacityKey`, and
 `volumeAvailableCapacityForImportantUsageKey` from the volume holding the scan root. Derive
 purgeable space as the difference between capacity available for important usage and strictly
-available capacity. Present the reconciliation as: measured total, plus permission-denied
-locations, plus user exclusions, plus purgeable space, plus a named residual category for space
-the app cannot attribute.
+available capacity.
 
 **Rationale**: These are the same figures Disk Utility surfaces; they originate from the system's
 CacheDelete subsystem rather than from APFS directly, which is why they disagree with the Finder's
 cached values. Available capacity already includes purgeable space, so subtracting gives the
 purgeable figure without a private interface.
 
-**Snapshot sizing**: Now that the app runs unsandboxed it can size snapshots, but only through a
-command-line tool. `tmutil listlocalsnapshots` enumerates snapshots without sizes. The underlying
-`fs_snapshot_*` calls are gated behind an Apple-only entitlement. `diskutil apfs listSnapshots`
-does report sizes, and it is the same source Disk Utility presents as "Private Size" — the space
-unique to a snapshot, which approximates what deleting it would return.
+> **Corrected during implementation of User Story 2.** Everything below this line replaces earlier
+> conclusions that were reached by reading documentation rather than by running the tools. Two of
+> them were wrong, and both were load-bearing. The figures quoted are from a stock Apple silicon
+> Mac running macOS 26.
 
-**Decision on snapshots**: Size them via `diskutil apfs listSnapshots`, isolated behind a single
-interface as the constitution's platform constraints require, treating its output as untrusted and
-changeable. Report each snapshot's private size. When the tool is unavailable, its output does not
-parse, or a size cannot be derived, that space falls through to the unattributed residual with the
-reason stated rather than being reported as zero.
+### Purgeable space is not a cause of the gap
 
-**Rationale**: Snapshots are among the most common reasons a Mac reports far more used space than
-its files account for, which is the exact confusion this app exists to resolve, so the capability
-is worth a fragile dependency. But it is genuinely fragile: this is human-readable output from a
-tool Apple can change in any release without breaking anything it considers an API. The fallback is
-therefore not a nicety. SC-008 requires that no gap is ever shown without a stated cause, and that
-promise has to survive the parser breaking.
+The original reconciliation was: measured, plus permission-denied locations, plus user exclusions,
+plus purgeable space, plus a residual. Purgeable does not belong in that sum. It sits *inside* the
+volume's used figure, and with no snapshots present it consists of caches and trash — real files
+the scan already counted. Adding it double counts them.
 
-**A caveat to carry into the interface**: a snapshot's size is not a fixed property. Snapshots
-share blocks with the live filesystem, so the space unique to one grows as the live volume diverges
-from it. Two readings taken days apart will legitimately differ, and the number should be presented
-as a current estimate rather than as a fact about the snapshot.
+Measured against the machine above: used is 429.06 GB and purgeable is 12.06 GB. Adding purgeable
+to the causes overshoots used by roughly that amount and drives the residual negative, which is
+both wrong and unpresentable.
 
-**Alternatives considered**: Relaxing FR-017 to a residual only was the plan while the sandbox
-stood, and is now unnecessary. Silently folding snapshots into the residual without naming them
-would violate FR-016 and SC-008.
+**Decision**: purgeable annotates the used figure ("429.06 GB used, of which 12.06 GB can be
+reclaimed automatically") and is not one of the itemized causes. It is still named and sized, as
+FR-016 asks; it is simply not additive. FR-016 was amended to match.
+
+### Snapshots cannot be sized at all
+
+The earlier claim that `diskutil apfs listSnapshots` reports sizes, and that they are the same
+"Private Size" Disk Utility shows, is false. The tool enumerates snapshots and reports no size
+field of any kind:
+
+```
++-- A8D7E960-D5DE-46FB-B435-F8B94D6F82C5
+    Name:        com.apple.os.update-5B92CE4BA1034457…
+    XID:         4983886
+    Purgeable:   No
+```
+
+The `-plist` form carries the same fields — `SnapshotName`, `SnapshotUUID`, `SnapshotXID`,
+`Purgeable`, `LimitingContainerShrink` — and nothing resembling a byte count. `tmutil
+listlocalsnapshots` also enumerates without sizes, and the underlying `fs_snapshot_*` calls remain
+behind an Apple-only entitlement.
+
+**Decision**: enumerate snapshots via the `-plist` form, which is far more stable to parse than the
+tree output, name each one, and report the size as undeterminable with the reason stated. The
+FR-017 fallback is therefore not an exceptional path guarding against a future parser break — it is
+the only path, taken on every scan. The bytes fall through to the unattributed remainder carrying
+the reason with them.
+
+### Sibling volumes in the same container are the dominant cause
+
+Not anticipated at all, and larger than everything else combined. An APFS container holds several
+volumes sharing one pool of free space, and a scan can only walk two of them: the sealed System
+volume and the Data volume that firmlinks stitch into it. On the machine above:
+
+| Volume | Role | In use | Reachable by a scan of `/` |
+| --- | --- | --- | --- |
+| disk3s1 | System | 12.56 GB | yes |
+| disk3s5 | Data | 383.12 GB | yes, via firmlinks |
+| disk3s2 | Preboot | 8.99 GB | no |
+| disk3s7 | (none) | 14.76 GB | no |
+| disk3s3 | Recovery | 1.30 GB | no |
+| disk3s4 | Update | 0.01 GB | no |
+| disk3s6 | VM | 0.00 GB | no |
+
+The unreachable volumes hold 25.06 GB, or 5.95% of used space — six times the budget SC-007 allows
+for the unexplained remainder. Without naming them the reconciliation cannot pass on a stock Mac.
+With them it lands at 0.05%.
+
+**Decision**: read the container layout from `diskutil apfs list -plist` and itemize the volumes a
+scan cannot reach as a cause of their own. Pair System with Data by role so the firmlinked partner
+is not counted as unreachable. Where the pairing is ambiguous — two macOS installs in one container
+give two Data volumes with nothing to distinguish them — report the extras as unreachable rather
+than guessing. That overstates the cause, which surfaces as an overlap the accounting flags, rather
+than understating it, which would present a wrong total confidently.
+
+**One interface for the tool**: both readings go through a single `DiskUtilityRunning` seam that
+returns raw bytes, as the constitution's platform constraints require. Parsing happens above it, so
+each parser can be tested against captured output without running anything.
+
+**A caveat to carry into the interface**: a snapshot's size, were it ever obtainable, would not be
+a fixed property. Snapshots share blocks with the live filesystem, so the space unique to one grows
+as the live volume diverges from it. Any future number here is a current estimate, not a fact about
+the snapshot.
+
+**Alternatives considered**: relaxing FR-017 to a residual only was the plan while the sandbox
+stood. It is now closer to what actually happens for snapshots, but naming them still matters —
+SC-008 requires the reason, and "there is a snapshot and macOS will not say how big it is" is a
+better answer than an unexplained 8 GB.
 
 ---
 

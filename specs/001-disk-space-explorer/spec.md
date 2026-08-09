@@ -351,13 +351,19 @@ and that the app refuses any action that would delete every copy.
   space the scan measured, and MUST NOT present the measured total as though it were the whole
   volume.
 - **FR-016**: That difference MUST be itemized by cause, covering at minimum locations denied by
-  permission, locations excluded by the user, space held by system snapshots, space the system can
-  reclaim automatically, and any remainder that cannot be attributed.
-- **FR-017**: System MUST name space held by snapshots and automatically reclaimable space as
-  distinct categories with their sizes, and MUST explain in plain language why that space is not
-  visible as ordinary files. Where a size cannot be determined, that space MUST fall through to the
-  unattributed remainder with the reason stated; it MUST NOT be reported as zero and MUST NOT be
-  quietly omitted.
+  permission, locations excluded by the user, space held by system snapshots, space held by volumes
+  sharing the same physical drive that a scan cannot reach, and any remainder that cannot be
+  attributed. Where the scan measured a folder rather than a whole volume, the unmeasured rest of
+  the volume MUST be named as a cause rather than presented as unexplained.
+- **FR-017**: System MUST name space held by snapshots as a distinct category with its size, and
+  MUST explain in plain language why that space is not visible as ordinary files. Where a size
+  cannot be determined, that space MUST fall through to the unattributed remainder with the reason
+  stated; it MUST NOT be reported as zero and MUST NOT be quietly omitted.
+- **FR-017a**: System MUST name and size space the system can reclaim automatically, and MUST
+  present it as a property of the space already in use rather than as a cause of the difference in
+  FR-015. It is counted inside the volume's used figure and consists largely of files the scan
+  measured, so adding it to the itemization in FR-016 would claim the same bytes twice. Research R4
+  records the measurement behind this.
 - **FR-018**: When the app lacks access to one or more locations that the operating system protects
   by default, system MUST inform the user before presenting results, name each location that will
   be missing, and provide guidance for granting the access.
