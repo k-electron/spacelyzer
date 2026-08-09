@@ -128,5 +128,4 @@ the code deliberately, so a change that alters behaviour changes the document th
 
 ## Licence
 
-None yet, which in practice means all rights reserved. Open an issue if you want to use this for
-something.
+[MIT](LICENSE). Use it for whatever you like.
