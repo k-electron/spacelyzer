@@ -104,6 +104,34 @@ struct VolumeAccountantTests {
         #expect(result.itemization.last?.sizeUnknownReason?.contains("overlap") == true)
     }
 
+    @Test("Unsizable snapshots get a ceiling from what the system can reclaim")
+    func purgeableBoundsTheRemainder() throws {
+        let result = accounting(causes: [
+            UnaccountedEntry(
+                cause: .snapshots,
+                bytes: nil,
+                sizeUnknownReason: "macOS does not report how much space it holds."
+            )
+        ])
+
+        // Local snapshots are purgeable and so are caches the scan already counted, and nothing
+        // public separates them. The bound says how much of the remainder could be snapshots
+        // without claiming how much is.
+        #expect(result.hasUnsizableSnapshots)
+        let bound = try #require(result.reclaimableBoundOnRemainder)
+        #expect(bound == min(result.purgeableBytes, result.unattributedBytes))
+    }
+
+    @Test("A remainder the causes have already swallowed gets no ceiling")
+    func noBoundWithoutARemainder() {
+        let result = accounting(causes: [
+            UnaccountedEntry(cause: .otherVolumes, bytes: RealMac.used)
+        ])
+
+        #expect(result.unattributedBytes < 0)
+        #expect(result.reclaimableBoundOnRemainder == nil)
+    }
+
     @Test("An empty volume reconciles without dividing by zero")
     func emptyVolumeIsSafe() {
         let result = VolumeAccounting(

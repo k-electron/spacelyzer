@@ -4,6 +4,13 @@ nonisolated enum DiskUtilityError: Error, Equatable {
     case toolUnavailable
     case failed(status: Int32)
     case unreadableOutput
+    case timedOut
+}
+
+/// Carries the tool's output back from the reading queue. Safe without a lock because the
+/// semaphore that publishes it also orders the write before the read.
+nonisolated private final class OutputBox: @unchecked Sendable {
+    var data = Data()
 }
 
 /// The only place in the app that invokes `diskutil`.
@@ -19,6 +26,9 @@ nonisolated protocol DiskUtilityRunning: Sendable {
 
 nonisolated struct DiskUtility: DiskUtilityRunning {
     private static let toolPath = "/usr/sbin/diskutil"
+    /// Generous next to the fraction of a second these calls normally take. It exists to bound a
+    /// tool wedged on an unresponsive disk, not to police a slow one.
+    private static let timeout: DispatchTimeInterval = .seconds(10)
 
     func run(_ arguments: [String]) throws -> Data {
         guard FileManager.default.isExecutableFile(atPath: Self.toolPath) else {
@@ -39,15 +49,29 @@ nonisolated struct DiskUtility: DiskUtilityRunning {
             throw DiskUtilityError.toolUnavailable
         }
 
-        // Drained before waiting: a plist listing every volume can exceed the pipe buffer, and
-        // waiting first would deadlock against a tool blocked on a full pipe.
-        let data = output.fileHandleForReading.readDataToEndOfFile()
-        process.waitUntilExit()
+        // Drained on another queue rather than inline. A plist listing every volume can exceed the
+        // pipe buffer, so the read has to happen while the tool still runs, but reading inline
+        // gives a wedged tool the power to block this thread forever.
+        nonisolated(unsafe) let handle = output.fileHandleForReading
+        let box = OutputBox()
+        let finished = DispatchSemaphore(value: 0)
+        DispatchQueue.global(qos: .utility).async {
+            box.data = handle.readDataToEndOfFile()
+            finished.signal()
+        }
 
+        if finished.wait(timeout: .now() + Self.timeout) == .timedOut {
+            process.terminate()
+            // Terminating closes the pipe, which ends the read. Bounded again in case it does not.
+            _ = finished.wait(timeout: .now() + .seconds(2))
+            throw DiskUtilityError.timedOut
+        }
+
+        process.waitUntilExit()
         guard process.terminationStatus == 0 else {
             throw DiskUtilityError.failed(status: process.terminationStatus)
         }
-        return data
+        return box.data
     }
 }
 

@@ -99,15 +99,28 @@ struct VolumeAccountingView: View {
                         .frame(width: 10)
                     Text(entry.cause.label)
                     Spacer(minLength: 12)
-                    // An undeterminable size says so. Reporting it as zero is what FR-017 forbids,
-                    // because a zero reads as "nothing here" rather than "not known".
-                    Text(entry.bytes.map { formatter.string(from: $0) } ?? "Size not known")
-                        .foregroundStyle(entry.bytes == nil ? .secondary : .primary)
+                    Text(sizeText(for: entry))
+                        .foregroundStyle(hasSize(entry) ? .primary : .secondary)
                         .monospacedDigit()
                 }
                 .contentShape(.rect)
             }
             .buttonStyle(.plain)
+
+            // The closest thing to a snapshot size that exists. Shown against the remainder
+            // because that is where unsizable snapshots end up.
+            if entry.cause == .unattributed,
+               let bound = accounting.reclaimableBoundOnRemainder,
+               accounting.hasUnsizableSnapshots {
+                Label(
+                    "Up to \(formatter.string(from: bound)) of this could be the snapshots above — macOS reports how much space it can reclaim, but not how that splits between snapshots and cached files.",
+                    systemImage: "questionmark.circle"
+                )
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .padding(.leading, 22)
+                .fixedSize(horizontal: false, vertical: true)
+            }
 
             if explaining == entry.cause {
                 VStack(alignment: .leading, spacing: 6) {
@@ -137,6 +150,22 @@ struct VolumeAccountingView: View {
             }
         }
         .padding(.vertical, 3)
+    }
+
+    private func hasSize(_ entry: UnaccountedEntry) -> Bool {
+        entry.bytes != nil && !(entry.cause == .unattributed && accounting.causesOverlap)
+    }
+
+    /// An undeterminable size says so, because a zero reads as "nothing here" rather than "not
+    /// known" (FR-017). An overlapping remainder says that too: the negative number underneath it
+    /// is real and worth keeping in the model, but printing it reads as a bug rather than as the
+    /// double count it actually reports.
+    private func sizeText(for entry: UnaccountedEntry) -> String {
+        if entry.cause == .unattributed, accounting.causesOverlap {
+            return "Causes overlap"
+        }
+        guard let bytes = entry.bytes else { return "Size not known" }
+        return formatter.string(from: bytes)
     }
 
     private func line(title: String, bytes: Int64, emphasis: Bool = false) -> some View {

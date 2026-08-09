@@ -116,4 +116,14 @@ struct SnapshotReaderTests {
         let reason = try #require(reading.sizeUnknownReason)
         #expect(reason.contains("did not answer"))
     }
+
+    @Test("A tool that hangs is bounded and degrades like any other failure")
+    func timeoutDegrades() throws {
+        let reader = SnapshotReader(diskUtility: StubDiskUtility(failing: .timedOut))
+
+        let reading = reader.snapshots(onVolumeAt: anyVolume)
+
+        #expect(reading.totalBytes == nil)
+        #expect(try #require(reading.sizeUnknownReason).contains("did not answer"))
+    }
 }

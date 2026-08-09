@@ -119,6 +119,21 @@ nonisolated struct VolumeAccounting: Sendable, Equatable {
     /// evidence of a real accounting error.
     var causesOverlap: Bool { unattributedBytes < 0 }
 
+    var hasUnsizableSnapshots: Bool {
+        identifiedCauses.contains { $0.cause == .snapshots && $0.bytes == nil }
+    }
+
+    /// The most of the remainder the system could reclaim, which is the closest public API gets to
+    /// sizing snapshots.
+    ///
+    /// Local snapshots are purgeable, and so are caches the scan already counted as files. Nothing
+    /// public separates the two, so this is offered as a ceiling rather than a measurement: it
+    /// says how much of the remainder *could* be snapshots without claiming how much is.
+    var reclaimableBoundOnRemainder: Int64? {
+        guard unattributedBytes > 0, purgeableBytes > 0 else { return nil }
+        return min(purgeableBytes, unattributedBytes)
+    }
+
     /// Every cause including the remainder, which is synthesised here so it can never be left out.
     var itemization: [UnaccountedEntry] {
         identifiedCauses + [remainder]

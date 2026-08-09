@@ -540,8 +540,13 @@ and that the app refuses any action that would delete every copy.
   scans containing up to 1,000,000 items.
 - **SC-006**: The total reported for a scanned location is within 1% of the size the operating
   system reports for that same location.
-- **SC-007**: The measured total plus every itemized cause of unaccounted space reconciles with the
-  volume's reported used space within 1%.
+- **SC-007**: The space that no itemized cause explains stays within 1% of the volume's reported
+  used space, excluding space held by snapshots whose size the operating system declines to report.
+  Stating this as "measured plus every cause reconciles within 1%" would be satisfied by
+  construction, since the remainder is by definition whatever the causes leave over; what is worth
+  measuring is how much goes unexplained. The snapshot exemption is not a lowered bar but an
+  acknowledgement that no public interface returns the number — research R4 records the finding,
+  and SC-008 still requires the space be named and its absence explained.
 - **SC-008**: No difference between the volume's used space and the measured total is ever presented
   without a stated cause; the unexplained remainder is itself always labeled and sized.
 - **SC-009**: Applying or clearing a filter updates both views within 200 milliseconds on a scan of
