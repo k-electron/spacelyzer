@@ -19,6 +19,7 @@ struct MainSplitView: View {
     @State private var trailingTab: TrailingTab = .treemap
     @State private var coloring: TreemapColoring = .folder
     @State private var selection = SelectionCoordinator()
+    @State private var filters = FilterCoordinator()
     /// The list in force when the displayed result was produced, so a later change to it can be
     /// recognised as making that result stale rather than merely old (FR-013).
     @State private var scannedWithExclusions: [URL] = []
@@ -65,12 +66,17 @@ struct MainSplitView: View {
         .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
             broker.refreshAccessState()
         }
+        // One result, handed to both views, so they cannot describe different subsets (FR-042).
+        .onChange(of: filters.result) { _, result in
+            coordinator.apply(retained: result?.retained)
+        }
         .onChange(of: controller.state) { _, state in
             guard let url = controller.rootURL else { return }
 
             // Partial results are worth drawing, so a cancelled scan gets a picture too.
             if state == .completed || state == .cancelled, let root = controller.root {
                 coordinator.present(root: root, path: url.standardizedFileURL.path)
+                filters.present(root: root, path: url.standardizedFileURL.path)
             }
 
             // Recorded only once a scan has actually produced a total worth returning to.
@@ -82,6 +88,7 @@ struct MainSplitView: View {
 
     private enum TrailingTab: Hashable {
         case treemap
+        case kinds
         case totals
     }
 
@@ -112,6 +119,7 @@ struct MainSplitView: View {
         broker.acknowledgeGrant()
         coordinator.clear()
         selection.clear()
+        filters.clearScan()
         scannedWithExclusions = exclusionRules.excludedURLs()
         controller.scan(root: url, excluding: scannedWithExclusions)
     }
@@ -165,13 +173,27 @@ struct MainSplitView: View {
             }
 
             if let root = controller.root {
-                HierarchyOutlineView(
-                    root: root,
-                    rootPath: controller.rootURL?.standardizedFileURL.path ?? "",
+                FilterBarView(
+                    filter: filters.filter,
+                    result: filters.result,
+                    isWorking: filters.activity.isVisible,
                     formatter: formatter,
-                    sortOrder: sortOrder,
-                    selection: selection
+                    onChange: { filters.update($0) }
                 )
+                Divider()
+
+                if filters.matchedNothing {
+                    FilterEmptyStateView(onClear: { filters.clearFilter() })
+                } else {
+                    HierarchyOutlineView(
+                        root: root,
+                        rootPath: controller.rootURL?.standardizedFileURL.path ?? "",
+                        formatter: formatter,
+                        sortOrder: sortOrder,
+                        selection: selection,
+                        retained: filters.result?.retained
+                    )
+                }
             } else if !controller.isRunning {
                 startPane
             } else {
@@ -338,6 +360,7 @@ struct MainSplitView: View {
         VStack(spacing: 0) {
             Picker("View", selection: $trailingTab) {
                 Text("Treemap").tag(TrailingTab.treemap)
+                Text("Kinds").tag(TrailingTab.kinds)
                 Text("Totals").tag(TrailingTab.totals)
             }
             .pickerStyle(.segmented)
@@ -348,6 +371,7 @@ struct MainSplitView: View {
 
             switch trailingTab {
             case .treemap: treemapPane
+            case .kinds: kindsPane
             case .totals: totalsPane
             }
         }
@@ -390,6 +414,15 @@ struct MainSplitView: View {
                 description: Text("Analyze a folder or a volume and it will be drawn here.")
             )
         }
+    }
+
+    private var kindsPane: some View {
+        CategoryBreakdownView(
+            totals: filters.breakdown,
+            selected: filters.filter.categories,
+            formatter: formatter,
+            onSelect: { filters.toggleCategory($0) }
+        )
     }
 
     @ViewBuilder

@@ -47,6 +47,9 @@ struct HierarchyOutlineView: View {
     let formatter: SizeFormatter
     let sortOrder: SortOrder
     let selection: SelectionCoordinator
+    /// The filtered subset, or nil when nothing is being filtered. The same set the treemap is
+    /// drawing, so the two always describe one thing (FR-042).
+    var retained: Set<String>?
 
     /// Which folders are open. Held here rather than per row, so revealing something deep opens
     /// every ancestor in one pass instead of one level per render.
@@ -69,7 +72,8 @@ struct HierarchyOutlineView: View {
                 total: root.cumulativeSize,
                 order: sortOrder,
                 expanded: expanded,
-                fullyShown: fullyShown
+                fullyShown: fullyShown,
+                retained: retained
             )
         ) {
             Self.flatten(
@@ -77,7 +81,8 @@ struct HierarchyOutlineView: View {
                 path: rootPath,
                 order: sortOrder,
                 expanded: expanded,
-                fullyShown: fullyShown
+                fullyShown: fullyShown,
+                retained: retained
             )
         }
     }
@@ -175,6 +180,7 @@ struct HierarchyOutlineView: View {
         order: SortOrder,
         expanded: Set<String>,
         fullyShown: Set<String>,
+        retained: Set<String>? = nil,
         depth: Int = 0,
         parentTotal: Int64? = nil,
         into rows: inout [OutlineRow]
@@ -192,7 +198,14 @@ struct HierarchyOutlineView: View {
         )
         guard isOpen, !item.children.isEmpty else { return }
 
-        let ordered = order.sort(item.children)
+        // A filter narrows what a folder contains before it is ordered or capped, so the cap
+        // applies to matches rather than spending itself on rows that will not be shown.
+        let candidates = retained.map { kept in
+            item.children.filter { kept.contains(path + "/" + $0.name) }
+        } ?? item.children
+        guard !candidates.isEmpty else { return }
+
+        let ordered = order.sort(candidates)
         let shown = fullyShown.contains(path) ? ordered.count : min(childLimit, ordered.count)
 
         for child in ordered.prefix(shown) {
@@ -202,6 +215,7 @@ struct HierarchyOutlineView: View {
                 order: order,
                 expanded: expanded,
                 fullyShown: fullyShown,
+                retained: retained,
                 depth: depth + 1,
                 parentTotal: item.cumulativeSize,
                 into: &rows
@@ -231,7 +245,8 @@ struct HierarchyOutlineView: View {
         path: String,
         order: SortOrder,
         expanded: Set<String>,
-        fullyShown: Set<String>
+        fullyShown: Set<String>,
+        retained: Set<String>? = nil
     ) -> [OutlineRow] {
         var rows: [OutlineRow] = []
         rows.reserveCapacity(256)
@@ -241,6 +256,7 @@ struct HierarchyOutlineView: View {
             order: order,
             expanded: expanded,
             fullyShown: fullyShown,
+            retained: retained,
             into: &rows
         )
         return rows
@@ -275,6 +291,7 @@ private struct RowKey: Equatable {
     let order: SortOrder
     let expanded: Set<String>
     let fullyShown: Set<String>
+    let retained: Set<String>?
 }
 
 /// Memoises the flattened rows.

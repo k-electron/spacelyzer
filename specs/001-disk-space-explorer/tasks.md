@@ -211,21 +211,21 @@ its totals reconcile.
 
 ### Tests for User Story 5
 
-- [ ] T073 [P] [US5] Test name, category, extension, size, and date filters individually in `SpacelyzerTests/FilterEvaluatorTests.swift` (FR-037 through FR-040)
-- [ ] T074 [P] [US5] Test that combined filters intersect and that match count and total size are correct in `SpacelyzerTests/FilterEvaluatorTests.swift` (FR-041, FR-043)
-- [ ] T075 [P] [US5] Test that a directory is retained for structure when a descendant matches in `SpacelyzerTests/FilterEvaluatorTests.swift`
-- [ ] T076 [P] [US5] Test that category totals reconcile with the scan and rank by size in `SpacelyzerTests/CategoryAnalyzerTests.swift` (FR-044)
+- [X] T073 [P] [US5] Test name, category, extension, size, and date filters individually in `SpacelyzerTests/FilterEvaluatorTests.swift` (FR-037 through FR-040)
+- [X] T074 [P] [US5] Test that combined filters intersect and that match count and total size are correct in `SpacelyzerTests/FilterEvaluatorTests.swift` (FR-041, FR-043)
+- [X] T075 [P] [US5] Test that a directory is retained for structure when a descendant matches in `SpacelyzerTests/FilterEvaluatorTests.swift`
+- [X] T076 [P] [US5] Test that category totals reconcile with the scan and rank by size in `SpacelyzerTests/CategoryAnalyzerTests.swift` (FR-044) — the suite lives alongside the filter tests, since most of what is worth asserting is that the two agree
 
 ### Implementation for User Story 5
 
-- [ ] T077 [US5] Define the `Filter` value type in `Spacelyzer/Models/Filter.swift` covering name, categories, extensions, size range, and modified range
-- [ ] T078 [US5] Implement `FilterEvaluator` producing a set of matching identifiers with count and total in `Spacelyzer/Analysis/FilterEvaluator.swift` (FR-043)
-- [ ] T079 [US5] Run evaluation off the main actor, superseding in-flight evaluations when the filter changes, in `Spacelyzer/Analysis/FilterCoordinator.swift` (Principle III)
-- [ ] T080 [US5] Apply the single filter result to both views simultaneously in `Spacelyzer/Views/MainSplitView.swift` (FR-042)
-- [ ] T081 [US5] Build the filter bar with visible active filters and a single clear action in `Spacelyzer/Views/FilterBarView.swift` (FR-041)
-- [ ] T082 [US5] Implement `CategoryAnalyzer` producing size-ranked category totals in `Spacelyzer/Analysis/CategoryAnalyzer.swift` (FR-044)
-- [ ] T083 [US5] Build the category breakdown view with select-to-filter in `Spacelyzer/Views/CategoryBreakdownView.swift` (FR-044)
-- [ ] T084 [US5] Add the empty state explaining a filter that matches nothing, with a clear action in `Spacelyzer/Views/FilterEmptyStateView.swift`
+- [X] T077 [US5] Define the `Filter` value type in `Spacelyzer/Models/Filter.swift` covering name, categories, extensions, size range, and modified range
+- [X] T078 [US5] Implement `FilterEvaluator` producing a set of matching identifiers with count and total in `Spacelyzer/Analysis/FilterEvaluator.swift` (FR-043) — the result also carries the folders retained for structure, which the contract describes but did not name
+- [X] T079 [US5] Run evaluation off the main actor, superseding in-flight evaluations when the filter changes, in `Spacelyzer/Analysis/FilterCoordinator.swift` (Principle III)
+- [X] T080 [US5] Apply the single filter result to both views simultaneously in `Spacelyzer/Views/MainSplitView.swift` (FR-042) — the treemap lays out over the retained subset rather than dimming what is filtered out, so its areas stay proportional to what is being shown
+- [X] T081 [US5] Build the filter bar with visible active filters and a single clear action in `Spacelyzer/Views/FilterBarView.swift` (FR-041)
+- [X] T082 [US5] Implement `CategoryAnalyzer` producing size-ranked category totals in `Spacelyzer/Analysis/CategoryAnalyzer.swift` (FR-044)
+- [X] T083 [US5] Build the category breakdown view with select-to-filter in `Spacelyzer/Views/CategoryBreakdownView.swift` (FR-044)
+- [X] T084 [US5] Add the empty state explaining a filter that matches nothing, with a clear action in `Spacelyzer/Views/FilterBarView.swift` — kept beside the bar that causes it rather than in a file of its own
 
 **Checkpoint**: A large scan becomes actionable
 

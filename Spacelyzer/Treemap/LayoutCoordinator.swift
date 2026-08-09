@@ -52,6 +52,8 @@ final class LayoutCoordinator {
     private var bounds: CGRect = .zero
     private var layoutTask: Task<Void, Never>?
     private let engine = SquarifiedLayout()
+    /// The filtered subset both views are showing, or nil when nothing is being filtered.
+    private var retained: Set<String>?
 
     var layout: TreemapLayout { snapshot.layout }
     var hasContent: Bool { !stack.isEmpty }
@@ -70,6 +72,14 @@ final class LayoutCoordinator {
         stack = []
         snapshot = .empty
         activity.end()
+    }
+
+    /// Narrows the picture to the filtered subset. The same set the outline is showing, so the
+    /// two cannot describe different things (FR-042).
+    func apply(retained: Set<String>?) {
+        guard retained != self.retained else { return }
+        self.retained = retained
+        recompute()
     }
 
     func resize(to newBounds: CGRect) {
@@ -120,10 +130,18 @@ final class LayoutCoordinator {
         let bounds = bounds
         let item = current.item
         let path = current.path
+        let retained = retained
 
         layoutTask = Task {
+            // Released on every path, including a superseded one. Returning early without it
+            // leaves the indicator claimed forever, so the canvas stays dimmed and the app says
+            // it is working while sitting idle.
+            defer { self.activity.end() }
+
             let computed = await Task.detached(priority: .userInitiated) {
-                let layout = engine.layout(root: item, rootPath: path, in: bounds)
+                let layout = engine.layout(
+                    root: item, rootPath: path, in: bounds, retained: retained
+                )
                 // Built alongside the layout rather than on arrival, because indexing a large
                 // layout on the main actor would undo the point of computing it off one.
                 return LayoutSnapshot(layout: layout, index: SpatialIndex(layout: layout))
@@ -131,7 +149,6 @@ final class LayoutCoordinator {
 
             guard !Task.isCancelled else { return }
             self.snapshot = computed
-            self.activity.end()
         }
     }
 

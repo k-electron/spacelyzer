@@ -101,7 +101,11 @@ struct FilterEvaluatorTests {
 
         var ceiling = Filter()
         ceiling.maximumSize = 1_000
-        #expect(evaluate(ceiling).matches == ["/scan/code/main.swift", "/scan/code/README.md"])
+        // The code folder is exactly at the ceiling, so it qualifies alongside its contents.
+        #expect(
+            evaluate(ceiling).matches
+                == ["/scan/code", "/scan/code/main.swift", "/scan/code/README.md"]
+        )
 
         var band = Filter()
         band.minimumSize = 1_000
@@ -242,6 +246,23 @@ struct CategoryAnalyzerTests {
         #expect(breakdown[0].category == .image)
         #expect(breakdown[0].bytes == 8_000)
         #expect(abs(breakdown[0].share - 1) < 0.0001)
+    }
+
+    @Test("Matching a folder breaks down what is inside it")
+    func matchedFolderContributesItsContents() {
+        var filter = Filter()
+        filter.text = "photos"
+        let result = FilterEvaluator().evaluate(filter, over: tree, rootPath: "/scan")
+
+        let breakdown = CategoryAnalyzer().breakdown(
+            of: tree, rootPath: "/scan", matching: result.matches
+        )
+
+        // Only the folder matched, and a folder holds no bytes of its own. Counting just the
+        // match would report nothing and contradict the size the filter reports.
+        #expect(breakdown.reduce(0) { $0 + $1.bytes } == result.combinedSize)
+        #expect(breakdown.count == 1)
+        #expect(breakdown[0].category == .image)
     }
 
     @Test("Data counted elsewhere is not counted again here")

@@ -47,8 +47,17 @@ nonisolated struct SquarifiedLayout: Sendable {
     /// remainder instead. Roughly a five-point square: small enough to still be a visible mark.
     var minimumDrawableArea: CGFloat = 25
 
-    func layout(root: ScannedItem, rootPath: String, in bounds: CGRect) -> TreemapLayout {
+    /// `retained` narrows the picture to a filtered subset. Siblings left out are dropped rather
+    /// than dimmed, so the rectangles that remain are proportional to each other — which is what
+    /// makes the treemap describe the same subset the outline is showing (FR-042).
+    func layout(
+        root: ScannedItem,
+        rootPath: String,
+        in bounds: CGRect,
+        retained: Set<String>? = nil
+    ) -> TreemapLayout {
         guard bounds.width > 0, bounds.height > 0 else { return .empty }
+        if let retained, !retained.contains(rootPath) { return .empty }
 
         var nodes: [TreemapNode] = []
         var nextID = 0
@@ -94,8 +103,13 @@ nonisolated struct SquarifiedLayout: Sendable {
             let inset = rect.insetBy(dx: 1, dy: 1)
             guard inset.width > 0, inset.height > 0 else { return }
 
+            let candidates = retained.map { kept in
+                item.children.filter { kept.contains(path + "/" + $0.name) }
+            } ?? item.children
+            guard !candidates.isEmpty else { return }
+
             let (drawable, remainder) = Self.partition(
-                children: item.children,
+                children: candidates,
                 parentArea: inset.width * inset.height,
                 minimumDrawableArea: minimumDrawableArea
             )

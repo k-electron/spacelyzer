@@ -17,6 +17,10 @@ nonisolated struct CategoryTotal: Sendable, Identifiable, Equatable {
 /// sizes add up to exactly what the scan measured.
 nonisolated struct CategoryAnalyzer: Sendable {
 
+    /// `matching` narrows the breakdown to a filter's results. A node counts when it matched or
+    /// when it sits inside something that did — matching a folder means asking what is in it, and
+    /// counting only the folder itself would report nothing, since a folder holds no bytes of its
+    /// own. Totalled this way the breakdown agrees with the combined size the filter reports.
     func breakdown(
         of root: ScannedItem,
         rootPath: String,
@@ -26,24 +30,23 @@ nonisolated struct CategoryAnalyzer: Sendable {
         var counts: [FileCategory: Int] = [:]
         var total: Int64 = 0
 
-        func walk(_ item: ScannedItem, path: String) {
+        func walk(_ item: ScannedItem, path: String, insideMatch: Bool) {
+            let isMatch = insideMatch || (matching?.contains(path) ?? true)
+
             // Hard-linked data reachable by several paths contributes where it was first counted,
             // preserving the count-once invariant.
-            let included = !item.countedElsewhere
-                && (matching?.contains(path) ?? true)
-
-            if included, item.ownSize > 0 || item.kind != .directory {
+            if isMatch, !item.countedElsewhere, item.ownSize > 0 || item.kind != .directory {
                 bytes[item.category, default: 0] += item.ownSize
                 counts[item.category, default: 0] += 1
                 total += item.ownSize
             }
 
             for child in item.children {
-                walk(child, path: path + "/" + child.name)
+                walk(child, path: path + "/" + child.name, insideMatch: isMatch)
             }
         }
 
-        walk(root, path: rootPath)
+        walk(root, path: rootPath, insideMatch: false)
 
         return bytes.keys
             .map { category in
