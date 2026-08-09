@@ -7,8 +7,28 @@ import SwiftUI
 nonisolated struct LayoutSnapshot: Sendable {
     let layout: TreemapLayout
     let index: SpatialIndex
+    /// Path to position in `layout.nodes`, so highlighting the selection is a lookup rather than
+    /// a scan of every rectangle on every draw.
+    private let positionsByPath: [String: Int]
+
+    init(layout: TreemapLayout, index: SpatialIndex) {
+        self.layout = layout
+        self.index = index
+
+        // Remainders are skipped deliberately: one carries the path of the parent it stands for,
+        // so indexing it would shadow the real rectangle of that folder.
+        var positions: [String: Int] = [:]
+        for (position, node) in layout.nodes.enumerated() where !node.isRemainder {
+            positions[node.path] = position
+        }
+        positionsByPath = positions
+    }
 
     static let empty = LayoutSnapshot(layout: .empty, index: SpatialIndex(layout: .empty))
+
+    func node(withPath path: String) -> TreemapNode? {
+        positionsByPath[path].map { layout.nodes[$0] }
+    }
 }
 
 /// Owns which subtree the treemap is showing and keeps its layout current.
@@ -33,6 +53,7 @@ final class LayoutCoordinator {
     var hasContent: Bool { !stack.isEmpty }
     var canNavigateOut: Bool { stack.count > 1 }
     var trail: [String] { stack.map(\.item.name) }
+    var displayedRootPath: String? { stack.last?.path }
 
     func present(root: ScannedItem, path: String) {
         stack = [(root, path)]

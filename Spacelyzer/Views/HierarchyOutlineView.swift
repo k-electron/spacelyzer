@@ -26,28 +26,48 @@ enum SortOrder: String, CaseIterable, Identifiable {
 /// nothing.
 struct HierarchyOutlineView: View {
     let root: ScannedItem
+    let rootPath: String
     let formatter: SizeFormatter
     let sortOrder: SortOrder
+    let selection: SelectionCoordinator
 
     var body: some View {
-        List {
-            NodeRow(
-                item: root,
-                parentTotal: root.cumulativeSize,
-                formatter: formatter,
-                sortOrder: sortOrder,
-                startsExpanded: true
-            )
+        ScrollViewReader { proxy in
+            List {
+                NodeRow(
+                    item: root,
+                    path: rootPath,
+                    parentTotal: root.cumulativeSize,
+                    formatter: formatter,
+                    sortOrder: sortOrder,
+                    selection: selection,
+                    startsExpanded: true
+                )
+            }
+            .listStyle(.inset)
+            .onChange(of: selection.revealToken) { _, _ in
+                guard let path = selection.selectedPath else { return }
+                // The rows on the way down expand from the same change, so the destination row
+                // does not exist yet at this instant. One turn of the run loop is enough for it
+                // to appear, and well inside the 100 ms SC-004 allows.
+                Task {
+                    try? await Task.sleep(for: .milliseconds(40))
+                    withAnimation(.easeOut(duration: 0.15)) {
+                        proxy.scrollTo(path, anchor: .center)
+                    }
+                }
+            }
         }
-        .listStyle(.inset)
     }
 }
 
 private struct NodeRow: View {
     let item: ScannedItem
+    let path: String
     let parentTotal: Int64
     let formatter: SizeFormatter
     let sortOrder: SortOrder
+    let selection: SelectionCoordinator
     var startsExpanded: Bool = false
 
     @State private var isExpanded = false
@@ -62,15 +82,22 @@ private struct NodeRow: View {
                 ForEach(sortOrder.sort(item.children), id: \.name) { child in
                     NodeRow(
                         item: child,
+                        path: path + "/" + child.name,
                         parentTotal: item.cumulativeSize,
                         formatter: formatter,
-                        sortOrder: sortOrder
+                        sortOrder: sortOrder,
+                        selection: selection
                     )
                 }
             } label: {
                 label
             }
             .onAppear { if startsExpanded { isExpanded = true } }
+            // Opened only when something below it was selected in the treemap. Never closed here,
+            // because collapsing a folder the user opened themselves would be its own bug.
+            .onChange(of: selection.revealToken) { _, _ in
+                if selection.isOnPathToSelection(path) { isExpanded = true }
+            }
         }
     }
 
@@ -107,8 +134,21 @@ private struct NodeRow: View {
                 .monospacedDigit()
                 .frame(minWidth: 48, alignment: .trailing)
         }
-        .accessibilityElement(children: .combine)
+        .padding(.vertical, 1)
+        .padding(.horizontal, 4)
+        .background(
+            RoundedRectangle(cornerRadius: 4)
+                .fill(selection.isSelected(path) ? Color.accentColor.opacity(0.25) : .clear)
+        )
+        .contentShape(.rect)
+        .onTapGesture { selection.select(path, from: .outline) }
+        .id(path)
+        // Ignore rather than combine. Combining lets the children's own values through, and the
+        // name is drawn truncated, so a leaf row announced itself as "Apple Color Emoji...." with
+        // no size at all. Ignoring them leaves only the description below, which is complete.
+        .accessibilityElement(children: .ignore)
         .accessibilityLabel(accessibilityDescription)
+        .accessibilityAddTraits(selection.isSelected(path) ? [.isSelected] : [])
     }
 
     private var symbol: String {
@@ -126,7 +166,7 @@ private struct NodeRow: View {
         if let share = formatter.share(of: item.cumulativeSize, in: parentTotal) {
             parts.append("\(share) of parent")
         }
-        parts.append("\(item.itemCount) items")
+        parts.append(item.itemCount == 1 ? "1 item" : "\(item.itemCount) items")
         if item.countedElsewhere {
             parts.append("counted elsewhere")
         }

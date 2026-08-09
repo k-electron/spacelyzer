@@ -18,6 +18,7 @@ struct MainSplitView: View {
     @State private var coordinator = LayoutCoordinator()
     @State private var trailingTab: TrailingTab = .treemap
     @State private var coloring: TreemapColoring = .folder
+    @State private var selection = SelectionCoordinator()
     /// The list in force when the displayed result was produced, so a later change to it can be
     /// recognised as making that result stale rather than merely old (FR-013).
     @State private var scannedWithExclusions: [URL] = []
@@ -94,10 +95,23 @@ struct MainSplitView: View {
         }
     }
 
+    /// Drilling changes what the treemap can represent, so the selection has to be reconciled
+    /// with the new root rather than left pointing somewhere invisible (FR-036).
+    private func drill(into node: TreemapNode) {
+        coordinator.drill(into: node)
+        resolveSelectionAgainstDisplayedRoot()
+    }
+
+    private func resolveSelectionAgainstDisplayedRoot() {
+        guard let rootPath = coordinator.displayedRootPath else { return }
+        selection.resolve(withinRoot: rootPath)
+    }
+
     private func startScan(_ url: URL) {
         pendingScan = nil
         broker.acknowledgeGrant()
         coordinator.clear()
+        selection.clear()
         scannedWithExclusions = exclusionRules.excludedURLs()
         controller.scan(root: url, excluding: scannedWithExclusions)
     }
@@ -149,7 +163,13 @@ struct MainSplitView: View {
             }
 
             if let root = controller.root {
-                HierarchyOutlineView(root: root, formatter: formatter, sortOrder: sortOrder)
+                HierarchyOutlineView(
+                    root: root,
+                    rootPath: controller.rootURL?.standardizedFileURL.path ?? "",
+                    formatter: formatter,
+                    sortOrder: sortOrder,
+                    selection: selection
+                )
             } else if !controller.isRunning {
                 startPane
             } else {
@@ -294,8 +314,9 @@ struct MainSplitView: View {
         if coordinator.hasContent {
             VStack(spacing: 0) {
                 HStack {
-                    TreemapTrailView(trail: coordinator.trail) {
-                        coordinator.navigate(toDepth: $0)
+                    TreemapTrailView(trail: coordinator.trail) { depth in
+                        coordinator.navigate(toDepth: depth)
+                        resolveSelectionAgainstDisplayedRoot()
                     }
                     Picker("Colour", selection: $coloring) {
                         ForEach(TreemapColoring.allCases) { Text($0.rawValue).tag($0) }
@@ -311,7 +332,8 @@ struct MainSplitView: View {
                     formatter: formatter,
                     coloring: coloring,
                     isRecomputing: coordinator.activity.isVisible,
-                    onDrill: { coordinator.drill(into: $0) },
+                    selection: selection,
+                    onDrill: { drill(into: $0) },
                     onResize: { coordinator.resize(to: $0) }
                 )
                 Divider()

@@ -184,18 +184,18 @@ highlights; click a different region and confirm the outline expands, selects, a
 
 ### Tests for User Story 4
 
-- [ ] T064 [P] [US4] Test that selecting in the outline highlights the matching treemap region in `SpacelyzerTests/SelectionCoordinatorTests.swift` (FR-033)
-- [ ] T065 [P] [US4] Test that selecting in the treemap expands ancestors and selects the outline row in `SpacelyzerTests/SelectionCoordinatorTests.swift` (FR-034)
-- [ ] T066 [P] [US4] Test that a selection outside the drilled root resolves to a defined state rather than disagreeing in `SpacelyzerTests/SelectionCoordinatorTests.swift` (FR-036)
+- [X] T064 [P] [US4] Test that selecting in the outline highlights the matching treemap region in `SpacelyzerTests/SelectionCoordinatorTests.swift` (FR-033)
+- [X] T065 [P] [US4] Test that selecting in the treemap expands ancestors and selects the outline row in `SpacelyzerTests/SelectionCoordinatorTests.swift` (FR-034)
+- [X] T066 [P] [US4] Test that a selection outside the drilled root resolves to a defined state rather than disagreeing in `SpacelyzerTests/SelectionCoordinatorTests.swift` (FR-036)
 
 ### Implementation for User Story 4
 
-- [ ] T067 [US4] Implement `SelectionCoordinator` holding exactly one selection shared by both views in `Spacelyzer/Views/SelectionCoordinator.swift` (FR-035)
-- [ ] T068 [US4] Highlight the selection at draw time without triggering relayout in `Spacelyzer/Treemap/TreemapCanvas.swift` (SC-004)
-- [ ] T069 [US4] Expand ancestors, select, and scroll into view on treemap-originated selection in `Spacelyzer/Views/HierarchyOutlineView.swift` (FR-034)
-- [ ] T070 [US4] Resolve selection to the nearest containing ancestor when the drilled root excludes it in `Spacelyzer/Views/SelectionCoordinator.swift` (FR-036)
-- [ ] T071 [US4] Expose drawn treemap nodes as accessibility elements labelled with name, size, and share, driving the shared selection, in `Spacelyzer/Treemap/TreemapCanvas.swift` (research R7, Principle V)
-- [ ] T072 [US4] Add a VoiceOver UI test covering outline navigation and treemap element announcement in `SpacelyzerUITests/AccessibilityTests.swift`
+- [X] T067 [US4] Implement `SelectionCoordinator` holding exactly one selection shared by both views in `Spacelyzer/Views/SelectionCoordinator.swift` (FR-035) — identified by path rather than by `ScannedItem`, which is a value with no identity and would make two matching files indistinguishable
+- [X] T068 [US4] Highlight the selection at draw time without triggering relayout in `Spacelyzer/Treemap/TreemapCanvas.swift` (SC-004) — the layout snapshot gained a path index so the highlight is a lookup rather than a scan of every rectangle per draw
+- [X] T069 [US4] Expand ancestors, select, and scroll into view on treemap-originated selection in `Spacelyzer/Views/HierarchyOutlineView.swift` (FR-034)
+- [X] T070 [US4] Resolve selection to the nearest containing ancestor when the drilled root excludes it in `Spacelyzer/Views/SelectionCoordinator.swift` (FR-036)
+- [X] T071 [US4] Expose drawn treemap nodes as accessibility elements labelled with name, size, and share, driving the shared selection, in `Spacelyzer/Treemap/TreemapCanvas.swift` (research R7, Principle V) — capped at the hundred largest regions, since a layout can hold tens of thousands and the outline is the complete equivalent
+- [X] T072 [US4] Add a VoiceOver UI test covering outline navigation and treemap element announcement in `SpacelyzerUITests/AccessibilityTests.swift` — which caught a real defect: file rows were announcing their own truncated text with no size, because combining children let the drawn label through
 
 **Checkpoint**: The two views behave as one tool, and the treemap is navigable without sight
 
