@@ -9,36 +9,14 @@ final class AccessibilityTests: XCTestCase {
         continueAfterFailure = true
     }
 
+    /// A fixed system folder keeps the test independent of whatever happens to be in the tester's
+    /// home directory.
+    private static let folder = "/System/Library/Fonts"
+
     @MainActor
     private func launchAndScanFonts() -> XCUIApplication {
-        let app = XCUIApplication()
-        app.launchArguments += ["-ApplePersistenceIgnoreState", "YES"]
-        app.launch()
-
-        XCTAssertTrue(app.buttons["Choose Folder…"].waitForExistence(timeout: 20))
-        app.buttons["Choose Folder…"].click()
-
-        // Drive the open panel by keyboard: a fixed system folder keeps the test independent of
-        // whatever happens to be in the tester's home directory. The panel does not expose its
-        // buttons to the test runner, so these waits are on the clock; the one that matters is
-        // the wait for the outline below, which is on the result actually arriving.
-        Thread.sleep(forTimeInterval: 2)
-        app.typeKey("g", modifierFlags: [.command, .shift])
-        Thread.sleep(forTimeInterval: 1)
-        app.typeText(Self.folder)
-        app.typeKey(.return, modifierFlags: [])
-        Thread.sleep(forTimeInterval: 2)
-        app.typeKey(.return, modifierFlags: [])
-
-        let rootRow = app.descendants(matching: .any).matching(
-            NSPredicate(format: "label CONTAINS %@", Self.folder)
-        ).firstMatch
-        XCTAssertTrue(rootRow.waitForExistence(timeout: 60), "the scan should produce an outline")
-
-        return app
+        ScanFlow.launchAndScan(Self.folder)
     }
-
-    private static let folder = "/System/Library/Fonts"
 
     /// Every outline row has to say what it is and how big it is, because that row is the whole
     /// of the accessible answer for anyone who cannot see the picture.

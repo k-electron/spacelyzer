@@ -32,27 +32,34 @@ struct ItemDetailsView: View {
     let formatter: SizeFormatter
 
     var body: some View {
-        if let details = inspector.details {
-            VStack(spacing: 0) {
-                previewArea
-                Divider()
-                ScrollView {
-                    VStack(alignment: .leading, spacing: 14) {
-                        heading(details)
-                        facts(details)
-                        actions
+        Group {
+            if let details = inspector.details {
+                VStack(spacing: 0) {
+                    previewArea
+                    Divider()
+                    ScrollView {
+                        VStack(alignment: .leading, spacing: 14) {
+                            heading(details)
+                            facts(details)
+                            actions
+                        }
+                        .padding(16)
+                        .frame(maxWidth: .infinity, alignment: .leading)
                     }
-                    .padding(16)
-                    .frame(maxWidth: .infinity, alignment: .leading)
                 }
+            } else {
+                ContentUnavailableView(
+                    "Nothing selected",
+                    systemImage: "sidebar.right",
+                    description: Text("Select a file or folder to see what it is.")
+                )
             }
-        } else {
-            ContentUnavailableView(
-                "Nothing selected",
-                systemImage: "sidebar.right",
-                description: Text("Select a file or folder to see what it is.")
-            )
         }
+        // Opaque, and clipped to itself. The panel's own translucency was sampling whatever sat
+        // behind and beneath it, which came out as a smear across the top of the window.
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background(.windowBackground)
+        .clipped()
     }
 
     // MARK: - Preview
@@ -81,7 +88,8 @@ struct ItemDetailsView: View {
             }
         }
         .frame(maxWidth: .infinity, minHeight: 200, maxHeight: 320)
-        .background(.quaternary.opacity(0.3))
+        .background(Color(nsColor: .underPageBackgroundColor))
+        .clipped()
     }
 
     private func unavailable(_ reason: String) -> some View {
@@ -103,12 +111,18 @@ struct ItemDetailsView: View {
 
     private func heading(_ details: ItemDetails) -> some View {
         VStack(alignment: .leading, spacing: 2) {
+            // Truncated rather than wrapped. A long name with no spaces in it is one word, and a
+            // word that cannot be broken is a width the panel would otherwise have to find.
             Text(details.name)
                 .font(.title3.weight(.semibold))
+                .lineLimit(2)
+                .truncationMode(.middle)
                 .textSelection(.enabled)
             Text(details.typeDescription)
                 .font(.callout)
                 .foregroundStyle(.secondary)
+                .lineLimit(1)
+                .truncationMode(.tail)
         }
     }
 

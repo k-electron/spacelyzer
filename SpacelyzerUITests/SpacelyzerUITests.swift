@@ -138,6 +138,79 @@ final class SpacelyzerUITests: XCTestCase {
         )
     }
 
+    /// A preview reports the size its content would like to be, and nothing outside the panel may
+    /// act on that. An enclosure does not take its size from what it encloses.
+    ///
+    /// Honest about what this does and does not establish: it pins the invariant, but it did not
+    /// reproduce the resizing that prompted it. Both subjects, in both orders, held the window and
+    /// the panel steady with the sizing fix removed, so whatever provokes the resize in practice
+    /// is something this does not yet reach.
+    @MainActor
+    func testALargePreviewResizesNeitherPanelNorWindow() throws {
+        let fixture = try ScanFlow.makeLargeImageFixture(named: "SpacelyzerPreviewFixture")
+        defer { ScanFlow.removeFixture(at: fixture) }
+
+        let app = ScanFlow.launchAndScan(fixture, expecting: "enormous.png")
+
+        // Selected before the panel is opened, which is the order anyone actually works in: click
+        // the thing you are wondering about, then ask what it is. Opening onto content is a
+        // different path from opening empty and being given content afterwards.
+        let first = app.descendants(matching: .any).matching(
+            NSPredicate(format: "label CONTAINS %@", "enormous.png")
+        ).firstMatch
+        XCTAssertTrue(first.waitForExistence(timeout: 20))
+        first.click()
+
+        let beforeOpening = app.windows.firstMatch.frame
+        app.buttons["Details"].click()
+        XCTAssertTrue(app.buttons["Reveal in Finder"].waitForExistence(timeout: 10))
+        Thread.sleep(forTimeInterval: 3)
+
+        let window = app.windows.firstMatch.frame
+        XCTAssertEqual(
+            window.width, beforeOpening.width, accuracy: 2,
+            "Opening the panel onto a large preview should not resize the window"
+        )
+
+        // The reveal button is left-aligned in the panel, so it stands in for the panel's leading
+        // edge from here on.
+        let panelLeft = app.buttons["Reveal in Finder"].frame.minX - 16
+
+        // Two shapes of oversized content: a picture far larger than the panel, and text whose
+        // longest line is far wider than it.
+        for name in ["enormous.png", "verywideline.txt"] {
+            let row = app.descendants(matching: .any).matching(
+                NSPredicate(format: "label CONTAINS %@", name)
+            ).firstMatch
+            XCTAssertTrue(row.waitForExistence(timeout: 20), "\(name) should be in the outline")
+            row.click()
+
+            XCTAssertTrue(
+                app.buttons["Reveal in Finder"].waitForExistence(timeout: 10),
+                "The panel should be describing \(name)"
+            )
+            // Long enough for Quick Look to have rendered and any resize it provoked to land.
+            Thread.sleep(forTimeInterval: 3)
+
+            let after = app.windows.firstMatch.frame
+            XCTAssertEqual(
+                after.width, window.width, accuracy: 2,
+                "Previewing \(name) should not resize the window"
+            )
+            XCTAssertEqual(
+                after.height, window.height, accuracy: 2,
+                "Previewing \(name) should not resize the window"
+            )
+
+            // The reveal button is left-aligned in the panel, so it moves exactly when the
+            // panel's leading edge does.
+            XCTAssertEqual(
+                app.buttons["Reveal in Finder"].frame.minX, panelLeft + 16, accuracy: 4,
+                "The panel should not have widened to fit \(name)"
+            )
+        }
+    }
+
     /// Sorting is a real control, not decoration. This guards the defect where the picker was
     /// wired to nothing because OutlineGroup could not see the selected order.
     @MainActor
