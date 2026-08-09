@@ -6,11 +6,14 @@ These are internal interfaces between the scanning capability and the rest of th
 so that traversal, accounting, and access brokering can be tested against fixture trees with no
 interface running, which Principle IV requires.
 
-**Shared types used across all three contract files.** `ScanNode` is the SwiftData model described
-in [data-model.md](../data-model.md), stored in an in-memory-only configuration. `NodeStore` is the
-set of `ScanNode` objects belonging to one scan, reached through its model context. `NodeID` is a
-node's `PersistentIdentifier`. `NodeSet` is a set of those identifiers, used wherever a subset of
-the scan needs passing around.
+**Shared types used across all three contract files.** `ScannedItem` is the value type described in
+[data-model.md](../data-model.md): a node in the scan tree, owning its children. A whole scan is
+therefore just its root `ScannedItem`. Where a subset of the scan needs passing around, it is
+carried as a set of paths rather than of object identifiers, since values have no identity of
+their own.
+
+These replaced a SwiftData-backed `NodeStore` and `NodeID`; research R5 records the measurement
+that removed them.
 
 ---
 
@@ -62,14 +65,14 @@ protocol ScanEngine {
         options: ScanOptions
     ) -> AsyncThrowingStream<ScanEvent, Error>
 
-    func expandPackage(_ id: NodeID, in store: NodeStore) async throws -> Subtree
+    func expandPackage(at url: URL, options: ScanOptions) async -> ScannedItem
 }
 
 enum ScanEvent {
     case progress(measuredBytes: Int64, itemsSeen: Int, currentPath: String)
     case skipped(SkippedLocation)
-    case completed(NodeStore, totals: ScanTotals)
-    case cancelled(NodeStore, totals: ScanTotals)
+    case completed(root: ScannedItem, totals: ScanTotals)
+    case cancelled(root: ScannedItem, totals: ScanTotals)
 }
 ```
 
@@ -93,7 +96,7 @@ enum ScanEvent {
   `ItemInspector` reads it for the single item being inspected.
 - Application bundles are measured whole but not enumerated during the main pass, so they arrive as
   single items (FR-022). `expandPackage` performs a targeted pass over one bundle when the user
-  opens it, returning a subtree to splice in. It is called only in response to that explicit action,
+  opens it, returning the measured subtree. It is called only in response to that explicit action,
   never speculatively, and like any other operation it reports that it is working if it runs long.
 
 **Testability requirement**: The engine reads through a `FileSystemProvider` seam so tests can

@@ -51,7 +51,7 @@ the interface.
 
 ### Scan
 
-One measurement of one root, and the owner of a `NodeStore`.
+One measurement of one root, owning the tree of `ScannedItem` it produced.
 
 | Field | Type | Notes |
 |---|---|---|
@@ -87,7 +87,7 @@ never becomes a silent gap.
 
 ### Selection
 
-A single optional `NodeID` plus the identity of the view that last changed it. There is exactly one
+A single optional item path plus the identity of the view that last changed it. There is exactly one
 of these per scan, shared by the outline and the treemap (FR-035). It is not two synchronised
 selections, and research R7 makes this load-bearing for accessibility rather than merely tidy.
 
@@ -120,7 +120,7 @@ rescan.
 
 ### DuplicateSet
 
-A group of two or more `NodeID`s whose contents are identical, with `recoverableSize` equal to the
+A group of two or more paths whose contents are identical, with `recoverableSize` equal to the
 total size of all but the largest-path-stable copy. Sets are ranked by `recoverableSize` (FR-064).
 
 A set carries the constraint that at least one member must survive any removal, and this is
@@ -129,7 +129,7 @@ entry point.
 
 ### TreemapLayout
 
-The output of laying out a displayed root: an array of `LaidOutRect` pairing a `NodeID` with its
+The output of laying out a displayed root: an array of `LaidOutRect` pairing an item with its
 frame and depth, plus a spatial index for hit testing. Layout is a pure function of node sizes and
 the available rectangle, with siblings ordered by descending size and ties broken by name, so the
 same data always produces the same picture (research R6).

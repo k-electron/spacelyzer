@@ -13,11 +13,11 @@ with no interface running. Shared types are defined at the top of
 
 ```swift
 protocol FilterEvaluator {
-    func evaluate(_ filter: Filter, over store: NodeStore) -> FilterResult
+    func evaluate(_ filter: Filter, over root: ScannedItem) -> FilterResult
 }
 
 struct FilterResult {
-    let matches: NodeSet
+    let matches: Set<String>   // matching paths
     let matchCount: Int
     let combinedSize: Int64
 }
@@ -27,8 +27,8 @@ struct FilterResult {
 
 - Evaluation never rescans and never touches the filesystem (FR-037, and the assumption that
   filtering works on results already in memory).
-- The result is a set of identifiers rather than a list of node objects, so the treemap can test
-  membership cheaply while drawing without holding a second copy of the tree. Whether this reaches
+- The result is a set of paths rather than a second tree, so the treemap can test membership
+  cheaply while drawing without duplicating the scan. Whether this reaches
   SC-009's 200 ms at a million nodes is the open performance question recorded in research R5.
 - An empty filter matches every node. Conditions combine conjunctively.
 - A directory matches if it satisfies the conditions itself; it is additionally retained for
@@ -52,7 +52,7 @@ struct FilterResult {
 
 ```swift
 protocol CategoryAnalyzer {
-    func breakdown(of store: NodeStore, matching: NodeSet?) -> [CategoryTotal]
+    func breakdown(of root: ScannedItem, matching: Set<String>?) -> [CategoryTotal]
 }
 ```
 
@@ -73,9 +73,8 @@ protocol CategoryAnalyzer {
 ```swift
 protocol TreemapLayoutEngine {
     func layout(
-        root: NodeID,
+        root: ScannedItem,
         in rect: CGRect,
-        store: NodeStore,
         minimumDrawableArea: CGFloat
     ) -> TreemapLayout
 }
@@ -113,11 +112,11 @@ protocol TreemapLayoutEngine {
 ```swift
 @MainActor
 protocol SelectionCoordinator: Observable {
-    var selected: NodeID? { get }
-    var displayedRoot: NodeID { get }
+    var selected: ScannedItem? { get }
+    var displayedRoot: ScannedItem { get }
 
-    func select(_ id: NodeID?, from origin: SelectionOrigin)
-    func drill(to id: NodeID)
+    func select(_ item: ScannedItem?, from origin: SelectionOrigin)
+    func drill(to item: ScannedItem)
     func navigateOut()
 }
 ```
@@ -145,10 +144,10 @@ protocol SelectionCoordinator: Observable {
 
 ```swift
 protocol ItemInspector {
-    func details(for id: NodeID, in store: NodeStore) -> ItemDetails
-    func preview(for id: NodeID, in store: NodeStore) async -> PreviewState
-    func reveal(_ id: NodeID, in store: NodeStore)
-    func open(_ id: NodeID, in store: NodeStore)
+    func details(for item: ScannedItem, at url: URL) -> ItemDetails
+    func preview(for url: URL) async -> PreviewState
+    func reveal(_ url: URL)
+    func open(_ url: URL)
 }
 
 enum PreviewState { case loading, ready(PreviewContent), unavailable(reason: String) }
@@ -156,7 +155,7 @@ enum PreviewState { case loading, ready(PreviewContent), unavailable(reason: Str
 
 **Contract**
 
-- `details` resolves from the node store plus a single filesystem read for the item's logical
+- `details` resolves from the scanned item plus a single filesystem read for the item's logical
   length, which is not stored per node. It must not wait on a preview (FR-048).
 - Both the occupied and logical sizes are shown whenever they differ, so a sparse or compressed
   file reads as explicable rather than as a bug in the scanner.

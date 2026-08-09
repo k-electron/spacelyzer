@@ -12,7 +12,7 @@ view, so that no future entry point can reach removal without passing them.
 
 ```swift
 protocol RemovalGuard {
-    func evaluate(_ candidates: [NodeID], in store: NodeStore) -> RemovalPlan
+    func evaluate(_ candidates: [URL]) -> RemovalPlan
 }
 
 struct RemovalPlan {
@@ -121,7 +121,7 @@ enum UndoAvailability {
 ```swift
 protocol DuplicateFinder {
     func findDuplicates(
-        in store: NodeStore,
+        under root: ScannedItem,
         minimumSize: Int64
     ) -> AsyncThrowingStream<DuplicateEvent, Error>
 }
