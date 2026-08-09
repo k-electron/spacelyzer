@@ -12,11 +12,26 @@ struct MainSplitView: View {
     @State private var volumes: [VolumeDescriptor] = []
     @State private var recents: [RecentLocation] = []
     @State private var appearance: AppearancePreference = .system
+    /// Held back until the user has seen what a scan of it will miss (FR-018).
+    @State private var pendingScan: URL?
+    @State private var showingExclusions = false
+    /// The list in force when the displayed result was produced, so a later change to it can be
+    /// recognised as making that result stale rather than merely old (FR-013).
+    @State private var scannedWithExclusions: [URL] = []
 
     private let formatter = SizeFormatter()
 
     private var recentLocations: RecentLocations {
         RecentLocations(context: modelContext)
+    }
+
+    private var exclusionRules: ExclusionRules {
+        ExclusionRules(context: modelContext)
+    }
+
+    private var resultIsStale: Bool {
+        controller.root != nil
+            && exclusionRules.resultIsStale(scannedWith: scannedWithExclusions)
     }
 
     var body: some View {
@@ -30,10 +45,21 @@ struct MainSplitView: View {
         .toolbar { toolbarContent }
         // Applied at the root so the whole window follows, including sheets and popovers.
         .preferredColorScheme(appearance.colorScheme)
+        .sheet(isPresented: $showingExclusions) {
+            ExclusionsSheet(
+                rules: exclusionRules,
+                scanRoot: controller.rootURL,
+                chooseFolder: { broker.chooseFolder() }
+            )
+        }
         .task {
             volumes = broker.mountedVolumes()
             recents = recentLocations.all()
             appearance = Preferences.current(in: modelContext).appearance
+        }
+        // A grant made in System Settings only becomes visible on the way back into the app.
+        .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
+            broker.refreshAccessState()
         }
         .onChange(of: controller.state) { _, state in
             // Recorded only once a scan has actually produced a total worth returning to.
@@ -43,9 +69,48 @@ struct MainSplitView: View {
         }
     }
 
+    /// One way in, so nothing can start a scan without first showing what it will miss.
+    private func beginScan(_ url: URL) {
+        let atRisk = broker.protectedLocationsAtRisk(under: url)
+        if atRisk.isEmpty {
+            startScan(url)
+        } else {
+            pendingScan = url
+        }
+    }
+
+    private func startScan(_ url: URL) {
+        pendingScan = nil
+        broker.acknowledgeGrant()
+        scannedWithExclusions = exclusionRules.excludedURLs()
+        controller.scan(root: url, excluding: scannedWithExclusions)
+    }
+
     @ViewBuilder
     private var leadingPane: some View {
         VStack(spacing: 0) {
+            if let pending = pendingScan {
+                AccessWarningView(
+                    locations: broker.protectedLocationsAtRisk(under: pending),
+                    onOpenSettings: { broker.openFullDiskAccessSettings() },
+                    onDismiss: { startScan(pending) }
+                )
+                .padding(8)
+            }
+
+            if broker.accessWasJustGranted, controller.rootURL != nil {
+                AccessGrantedBanner(
+                    onRescan: { if let url = controller.rootURL { startScan(url) } },
+                    onDismiss: { broker.acknowledgeGrant() }
+                )
+                .padding(8)
+            }
+
+            if resultIsStale {
+                StaleResultBanner(onRescan: { if let url = controller.rootURL { startScan(url) } })
+                    .padding(8)
+            }
+
             // Driven by the delay-then-show indicator rather than by `isRunning`, so a scan that
             // finishes quickly never flashes a progress panel (FR-069).
             if controller.activity.isVisible {
@@ -89,7 +154,7 @@ struct MainSplitView: View {
                 section("Choose something to measure") {
                     ForEach(volumes) { volume in
                         Button {
-                            controller.scan(root: volume.url)
+                            beginScan(volume.url)
                         } label: {
                             row(
                                 symbol: "internaldrive",
@@ -102,7 +167,7 @@ struct MainSplitView: View {
 
                     Button("Choose Folder…") {
                         if let url = broker.chooseFolder() {
-                            controller.scan(root: url)
+                            beginScan(url)
                         }
                     }
                     .padding(.top, 4)
@@ -129,7 +194,7 @@ struct MainSplitView: View {
             Button {
                 // Resolved through the bookmark first, so a folder that moved is still found.
                 if let url = recentLocations.resolve(entry) {
-                    controller.scan(root: url)
+                    beginScan(url)
                 }
             } label: {
                 row(
@@ -233,7 +298,15 @@ struct MainSplitView: View {
         }
         ToolbarItem {
             Button {
-                controller.rescan()
+                showingExclusions = true
+            } label: {
+                Label("Exclusions", systemImage: "minus.circle")
+            }
+            .help("Choose folders to leave out of scans")
+        }
+        ToolbarItem {
+            Button {
+                if let url = controller.rootURL { startScan(url) }
             } label: {
                 Label("Rescan", systemImage: "arrow.clockwise")
             }
@@ -243,7 +316,7 @@ struct MainSplitView: View {
         ToolbarItem {
             Button {
                 if let url = broker.chooseFolder() {
-                    controller.scan(root: url)
+                    beginScan(url)
                 }
             } label: {
                 Label("Scan Folder", systemImage: "folder.badge.magnifyingglass")
