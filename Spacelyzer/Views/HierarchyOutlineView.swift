@@ -44,28 +44,39 @@ struct HierarchyOutlineView: View {
     @State private var fullyShown: Set<String> = []
 
     var body: some View {
-        ScrollViewReader { proxy in
-            List {
-                NodeRow(
-                    item: root,
-                    path: rootPath,
-                    parentTotal: root.cumulativeSize,
-                    formatter: formatter,
-                    sortOrder: sortOrder,
-                    selection: selection,
-                    expanded: $expanded,
-                    fullyShown: $fullyShown
-                )
-            }
-            .listStyle(.inset)
-            .onAppear { expanded.insert(rootPath) }
-            .onChange(of: selection.revealToken) { _, _ in
-                reveal(proxy: proxy)
-            }
+        // Selection is the list's own, not a background drawn per row.
+        //
+        // A ScrollViewReader cannot reach a row the list has not built, and a lazy list discards
+        // rows once they are far enough off screen — so scrolling to something the user had
+        // scrolled away from did nothing at all, silently. Handing selection to the list lets
+        // AppKit scroll to it by row index, which does not care whether the row exists yet.
+        List(selection: selectionBinding) {
+            NodeRow(
+                item: root,
+                path: rootPath,
+                parentTotal: root.cumulativeSize,
+                formatter: formatter,
+                sortOrder: sortOrder,
+                selection: selection,
+                expanded: $expanded,
+                fullyShown: $fullyShown
+            )
+        }
+        .listStyle(.inset)
+        .onAppear { expanded.insert(rootPath) }
+        .onChange(of: selection.revealToken) { _, _ in
+            reveal()
         }
     }
 
-    private func reveal(proxy: ScrollViewProxy) {
+    private var selectionBinding: Binding<String?> {
+        Binding(
+            get: { selection.selectedPath },
+            set: { chosen in selection.select(chosen, from: .outline) }
+        )
+    }
+
+    private func reveal() {
         guard let path = selection.selectedPath else { return }
         expanded.formUnion(Self.ancestors(of: path, under: rootPath))
 
@@ -76,17 +87,12 @@ struct HierarchyOutlineView: View {
             fullyShown.insert(parent)
         }
 
-        Task {
-            // Opening the ancestors and laying the new rows out are still two separate passes,
-            // so the scroll waits a turn. Retried a few times because a very deep reveal can
-            // take more than one, and scrolling to a row that does not exist yet does nothing.
-            for attempt in 0..<5 {
-                try? await Task.sleep(for: .milliseconds(attempt == 0 ? 40 : 60))
-                withAnimation(.easeOut(duration: 0.15)) {
-                    proxy.scrollTo(path, anchor: .center)
-                }
-            }
+        // A click on a tile standing for the items too small to draw asks to see them.
+        if selection.revealContentsOfSelection {
+            expanded.insert(path)
+            fullyShown.insert(path)
         }
+
     }
 
     /// Every folder between the root and this path, the root included.
@@ -128,14 +134,6 @@ private struct NodeRow: View {
     /// than fits on screen and nothing below it is what anyone is hunting for, since the order
     /// puts the biggest first.
     private static let childLimit = 200
-    /// Sorted once per ordering rather than once per render.
-    ///
-    /// Every row observes the shared selection, so a single click re-renders all of them. With
-    /// the sort inline, that meant re-sorting every expanded folder's children on every click —
-    /// seven milliseconds apiece for a folder of fifty thousand, which is what made clicking
-    /// large folders feel unreliable.
-    @State private var sortedChildren: [ScannedItem] = []
-
     private var isExpanded: Binding<Bool> {
         Binding(
             get: { expanded.contains(path) },
@@ -150,39 +148,43 @@ private struct NodeRow: View {
             label
         } else {
             DisclosureGroup(isExpanded: isExpanded) {
-                // Siblings within a directory always have distinct names, so the name is a valid
-                // identity here and costs nothing to derive.
-                ForEach(visibleChildren, id: \.name) { child in
-                    NodeRow(
-                        item: child,
-                        path: path + "/" + child.name,
-                        parentTotal: item.cumulativeSize,
-                        formatter: formatter,
-                        sortOrder: sortOrder,
-                        selection: selection,
-                        expanded: $expanded,
-                        fullyShown: $fullyShown
-                    )
+                // Only an open folder is ordered, and it is ordered here rather than filled in
+                // asynchronously. The async version meant a folder's rows did not exist for a
+                // moment after it opened, and revealing a selection would scroll to a row that
+                // was not there yet — or land on a layout that then shifted underneath it.
+                if expanded.contains(path) {
+                    let ordered = sortOrder.sort(item.children)
+                    let shown = fullyShown.contains(path)
+                        ? ordered[...]
+                        : ordered.prefix(Self.childLimit)
+
+                    // Siblings within a directory always have distinct names, so the name is a
+                    // valid identity here and costs nothing to derive.
+                    ForEach(shown, id: \.name) { child in
+                        NodeRow(
+                            item: child,
+                            path: path + "/" + child.name,
+                            parentTotal: item.cumulativeSize,
+                            formatter: formatter,
+                            sortOrder: sortOrder,
+                            selection: selection,
+                            expanded: $expanded,
+                            fullyShown: $fullyShown
+                        )
+                    }
+                    remainderRow(beyond: shown.count, of: ordered)
                 }
-                remainderRow
             } label: {
                 label
             }
-            .task(id: sortOrder) { sortedChildren = sortOrder.sort(item.children) }
         }
-    }
-
-    private var visibleChildren: ArraySlice<ScannedItem> {
-        fullyShown.contains(path)
-            ? sortedChildren[...]
-            : sortedChildren.prefix(Self.childLimit)
     }
 
     /// Says how much is behind it rather than hiding it. The same promise the treemap's remainder
     /// makes: nothing disappears from the totals without being named.
     @ViewBuilder
-    private var remainderRow: some View {
-        let hidden = sortedChildren.dropFirst(visibleChildren.count)
+    private func remainderRow(beyond shownCount: Int, of ordered: [ScannedItem]) -> some View {
+        let hidden = ordered.dropFirst(shownCount)
         if !hidden.isEmpty {
             Button {
                 fullyShown.insert(path)
@@ -238,14 +240,8 @@ private struct NodeRow: View {
                 .frame(minWidth: 48, alignment: .trailing)
         }
         .padding(.vertical, 1)
-        .padding(.horizontal, 4)
-        .background(
-            RoundedRectangle(cornerRadius: 4)
-                .fill(selection.isSelected(path) ? Color.accentColor.opacity(0.25) : .clear)
-        )
         .contentShape(.rect)
-        .onTapGesture { selection.select(path, from: .outline) }
-        .id(path)
+        .tag(path)
         // Ignore rather than combine. Combining lets the children's own values through, and the
         // name is drawn truncated, so a leaf row announced itself as "Apple Color Emoji...." with
         // no size at all. Ignoring them leaves only the description below, which is complete.

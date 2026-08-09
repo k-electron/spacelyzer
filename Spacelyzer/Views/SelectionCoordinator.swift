@@ -27,10 +27,25 @@ final class SelectionCoordinator {
     /// reveals once instead of dragging the list back every time the view redraws.
     private(set) var revealToken = 0
 
-    func select(_ path: String?, from origin: SelectionOrigin) {
-        guard path != selectedPath || self.origin != origin else { return }
+    /// Set when the click was on a tile standing for items too small to draw. Selecting the
+    /// folder it belongs to is only half an answer; the point of clicking it is to see what is
+    /// inside, so the outline opens it in full.
+    private(set) var revealContentsOfSelection = false
+
+    func select(
+        _ path: String?,
+        from origin: SelectionOrigin,
+        revealingContents: Bool = false
+    ) {
         selectedPath = path
         self.origin = origin
+        revealContentsOfSelection = revealingContents
+
+        // Bumped on every click from the treemap, including one that lands on what is already
+        // selected. Only a gesture calls this, never a redraw, so a repeat means the user asked
+        // again — after scrolling the outline away, or on one of the many remainder tiles in a
+        // dense folder, all of which carry the same parent path. Skipping those left most clicks
+        // in a busy treemap doing nothing at all.
         if origin == .treemap, path != nil {
             revealToken += 1
         }

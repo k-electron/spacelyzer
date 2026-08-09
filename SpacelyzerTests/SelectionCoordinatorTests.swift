@@ -50,16 +50,29 @@ struct SelectionCoordinatorTests {
         #expect(selection.revealToken == 1)
     }
 
-    @Test("Re-selecting the same thing from the same place changes nothing")
-    func repeatedSelectionIsIdempotent() {
+    @Test("Clicking the same region again asks for it to be revealed again")
+    func repeatedTreemapClickRevealsAgain() {
         let selection = SelectionCoordinator()
 
         selection.select("/scan/a.bin", from: .treemap)
-        let token = selection.revealToken
         selection.select("/scan/a.bin", from: .treemap)
 
-        // Otherwise every redraw that re-reported the same selection would scroll the list again.
-        #expect(selection.revealToken == token)
+        // Only a gesture calls select, so a repeat is the user asking again — having scrolled
+        // away, or having clicked another of the remainder tiles that all carry the same parent
+        // path. Treating it as a no-op left most clicks in a dense treemap doing nothing.
+        #expect(selection.revealToken == 2)
+    }
+
+    @Test("Clicking a tile standing for small items asks to see them")
+    func remainderClickAsksForContents() {
+        let selection = SelectionCoordinator()
+
+        selection.select("/scan/a", from: .treemap, revealingContents: true)
+        #expect(selection.revealContentsOfSelection)
+
+        // An ordinary click selects without forcing a folder open.
+        selection.select("/scan/b.bin", from: .treemap)
+        #expect(selection.revealContentsOfSelection == false)
     }
 
     @Test("A selection inside the new root survives drilling")

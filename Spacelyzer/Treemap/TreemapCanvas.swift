@@ -110,9 +110,13 @@ struct TreemapCanvas: View {
             DragGesture(minimumDistance: 0)
                 .onEnded { value in
                     // A remainder carries its parent's path, so clicking one selects the folder
-                    // it stands for rather than nothing at all.
+                    // it stands for. It also asks the outline to open that folder in full, since
+                    // seeing the items it stands for is the reason to click it.
+                    let node = snapshot.index.node(at: value.location)
                     selection.select(
-                        snapshot.index.node(at: value.location)?.path, from: .treemap
+                        node?.path,
+                        from: .treemap,
+                        revealingContents: node?.isRemainder ?? false
                     )
                 }
         )
