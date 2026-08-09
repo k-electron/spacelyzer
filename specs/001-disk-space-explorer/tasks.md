@@ -337,7 +337,8 @@ differing contents do not group.
 - [ ] T127 Work through every scenario in `specs/001-disk-space-explorer/quickstart.md` and correct any that no longer match behaviour (Principle VII)
 - [ ] T128 [P] Update `specs/001-disk-space-explorer/spec.md` and `plan.md` for any divergence discovered during implementation (Principle VII)
 - [ ] T129 Configure Developer ID signing and notarization for release builds in `Spacelyzer.xcodeproj/project.pbxproj`, confirming `get-task-allow` is absent from the distributed artifact
-- [ ] T130 Write the project README describing what Spacelyzer is and how to build it
+- [X] T130 Write the project README describing what Spacelyzer is and how to build it — including what the tests do to the machine they run on, since the removal cases use the real Trash
+- [X] T131 Add continuous integration on GitHub's free macOS runners in `.github/workflows/ci.yml`, and commit a shared scheme so a fresh clone has one to build — the scheme had only ever existed in per-user state, which is ignored, so `xcodebuild -scheme` worked on the author's machine and nowhere else
 
 ---
 

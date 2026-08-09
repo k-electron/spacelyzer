@@ -1,0 +1,118 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+# The three signing settings repeat in every invocation on purpose. Held in one variable they
+# depend on the shell splitting it back into three words, which bash does and zsh does not — a
+# difference that surfaces as a baffling "conflicting provisioning settings" error rather than an
+# obvious one. There is no Developer ID on a runner, so everything is signed to run locally, which
+# is the same thing a contributor without this project's team needs and is written the same way in
+# the README.
+
+jobs:
+  unit:
+    name: Unit tests
+    # macOS 26, because the app is built against the macOS 26.5 SDK. Free for public repositories.
+    runs-on: macos-26
+    timeout-minutes: 30
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Select Xcode
+        run: |
+          # The macOS 26.5 SDK ships with Xcode 26.5 and 26.6, and the runner defaults to 26.6.
+          # Pinning stops a runner image update moving the toolchain underneath us; falling
+          # through to the default stops it breaking on the day 26.6 is retired.
+          if [ -d /Applications/Xcode_26.6.app ]; then
+            sudo xcode-select -s /Applications/Xcode_26.6.app
+          fi
+          xcodebuild -version
+
+      - name: Build
+        run: |
+          xcodebuild build-for-testing \
+            -project Spacelyzer.xcodeproj \
+            -scheme Spacelyzer \
+            -destination 'platform=macOS' \
+            -derivedDataPath .build/DerivedData \
+            CODE_SIGN_IDENTITY=- CODE_SIGN_STYLE=Manual DEVELOPMENT_TEAM=
+
+      # Nothing here touches a real home directory. Every case builds a tree under the temporary
+      # directory, and the removal cases take back out of the Trash whatever they put there.
+      - name: Test
+        run: |
+          xcodebuild test-without-building \
+            -project Spacelyzer.xcodeproj \
+            -scheme Spacelyzer \
+            -destination 'platform=macOS' \
+            -derivedDataPath .build/DerivedData \
+            -only-testing:SpacelyzerTests \
+            -resultBundlePath .build/unit.xcresult \
+            CODE_SIGN_IDENTITY=- CODE_SIGN_STYLE=Manual DEVELOPMENT_TEAM=
+
+      - name: Upload results
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: unit-xcresult
+          path: .build/unit.xcresult
+          retention-days: 7
+
+  interface:
+    name: Interface tests
+    # Separate from the unit job rather than a step after it, so that a flake here reads as a
+    # flake here. These drive the real interface: they need a graphical session, they take the
+    # pointer, and they are the part of the suite most exposed to a loaded machine.
+    runs-on: macos-26
+    timeout-minutes: 45
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Select Xcode
+        run: |
+          if [ -d /Applications/Xcode_26.6.app ]; then
+            sudo xcode-select -s /Applications/Xcode_26.6.app
+          fi
+          xcodebuild -version
+
+      - name: Build
+        run: |
+          xcodebuild build-for-testing \
+            -project Spacelyzer.xcodeproj \
+            -scheme Spacelyzer \
+            -destination 'platform=macOS' \
+            -derivedDataPath .build/DerivedData \
+            CODE_SIGN_IDENTITY=- CODE_SIGN_STYLE=Manual DEVELOPMENT_TEAM=
+
+      # Retried rather than tolerated: a test that only passes on the third attempt still passes,
+      # and one that never passes still fails the build.
+      - name: Test
+        run: |
+          xcodebuild test-without-building \
+            -project Spacelyzer.xcodeproj \
+            -scheme Spacelyzer \
+            -destination 'platform=macOS' \
+            -derivedDataPath .build/DerivedData \
+            -only-testing:SpacelyzerUITests \
+            -test-iterations 3 \
+            -retry-tests-on-failure \
+            -resultBundlePath .build/interface.xcresult \
+            CODE_SIGN_IDENTITY=- CODE_SIGN_STYLE=Manual DEVELOPMENT_TEAM=
+
+      - name: Upload results
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: interface-xcresult
+          path: .build/interface.xcresult
+          retention-days: 7
