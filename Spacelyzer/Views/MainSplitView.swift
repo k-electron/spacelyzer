@@ -52,8 +52,13 @@ struct MainSplitView: View {
         // Beside the views rather than replacing one of them. Deciding what a four-gigabyte file
         // is means looking at it and at where it sits in the scan at the same time.
         .inspector(isPresented: detailsBinding) {
-            ItemDetailsView(inspector: inspector, formatter: formatter)
-                .inspectorColumnWidth(min: 260, ideal: 320, max: 480)
+            DetailsPane(
+                inspector: inspector,
+                selection: selection,
+                formatter: formatter,
+                inspect: { inspectSelection($0) }
+            )
+            .inspectorColumnWidth(min: 260, ideal: 320, max: 480)
         }
         .toolbar { toolbarContent }
         // Applied at the root so the whole window follows, including sheets and popovers.
@@ -80,9 +85,15 @@ struct MainSplitView: View {
         .onChange(of: filters.result) { _, result in
             coordinator.apply(retained: result?.retained)
         }
-        // Whatever is selected is what the panel describes, whichever view the click came from.
-        .onChange(of: selection.selectedPath) { _, path in
-            inspectSelection(path)
+        // Closing the panel has to stop the work as well as hide it, and opening it has to pick up
+        // whatever was selected in the meantime. `showingDetails` is local state, so reading it
+        // here costs nothing; the selection is watched inside the pane for the opposite reason.
+        .onChange(of: showingDetails) { _, shown in
+            if shown {
+                inspectSelection(selection.selectedPath)
+            } else {
+                inspector.clear()
+            }
         }
         .onChange(of: controller.state) { _, state in
             guard let url = controller.rootURL else { return }
@@ -129,6 +140,7 @@ struct MainSplitView: View {
     }
 
     private func inspectSelection(_ path: String?) {
+        guard showingDetails else { return }
         guard let path, let root = controller.root, let url = controller.rootURL else {
             inspector.clear()
             return

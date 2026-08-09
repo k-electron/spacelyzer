@@ -1,5 +1,27 @@
 import SwiftUI
 
+/// The details pane, and the only place outside the two drawing views that watches the selection.
+///
+/// Watching it from `MainSplitView` instead made every click invalidate that whole view, and with
+/// it both panes, the treemap legend, and a fetch of the exclusion list. None of those depend on
+/// what is selected, and on a large scan rebuilding them is the most expensive thing the app does.
+/// Read here, a click re-evaluates this pane and nothing else.
+struct DetailsPane: View {
+    let inspector: ItemInspector
+    let selection: SelectionCoordinator
+    let formatter: SizeFormatter
+    /// Called with whatever is selected, on appearing as well as on change, so a pane that was
+    /// closed while the selection moved catches up when it opens.
+    let inspect: (String?) -> Void
+
+    var body: some View {
+        ItemDetailsView(inspector: inspector, formatter: formatter)
+            .onChange(of: selection.selectedPath, initial: true) { _, path in
+                inspect(path)
+            }
+    }
+}
+
 /// What the selected item is, above what is known about it (FR-045 through FR-050).
 ///
 /// The preview sits at the top because it answers the question fastest. A name like
@@ -40,10 +62,10 @@ struct ItemDetailsView: View {
         Group {
             switch inspector.preview {
             case .ready(let url):
-                // Rebuilt per item rather than reused. Quick Look holds render state for whatever
-                // it was last given, and a stale panel behind a new file is worse than a reload.
+                // One view, handed each item in turn. Giving every item its own forced a preview
+                // view to be built and closed on each click, and closing one tears down its
+                // connection to the process that does the rendering.
                 QuickLookPreview(url: url)
-                    .id(url)
             case .loading:
                 // Delay-then-show, so an item that resolves immediately never flashes a spinner
                 // on its way to being drawn (Principle III).

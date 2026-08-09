@@ -34,6 +34,15 @@ struct ItemInspectorTests {
         }
     }
 
+    /// The preview settles after the details, on purpose, so waiting for one is not waiting for
+    /// the other.
+    private func waitForPreview(_ inspector: ItemInspector, polls: Int = 300) async throws {
+        for _ in 0..<polls {
+            if inspector.preview != .loading, inspector.preview != nil { return }
+            try await Task.sleep(for: .milliseconds(10))
+        }
+    }
+
     // MARK: - T085. What the details report
 
     @Test("Details report the path, both sizes, the kind, and all three dates")
@@ -263,8 +272,8 @@ struct ItemInspectorTests {
         #expect(!inspector.activity.isVisible)
     }
 
-    @Test("A path that is not in the scan clears rather than inventing an item")
-    func unknownPathClears() async throws {
+    @Test("A path that is not in the scan reports nothing rather than inventing an item")
+    func unknownPathReportsNothing() async throws {
         let fixture = try FixtureTree()
         try fixture.file("a.bin", bytes: 1_000)
 
@@ -273,8 +282,56 @@ struct ItemInspectorTests {
         let inspector = ItemInspector()
 
         inspector.inspect(path: "/somewhere/else", in: scan.root, rootPath: rootPath)
+        for _ in 0..<300 where inspector.preview != nil {
+            try await Task.sleep(for: .milliseconds(10))
+        }
+
         #expect(inspector.details == nil)
         #expect(inspector.preview == nil)
+    }
+
+    @Test("Reselecting what is already being looked at does no work over again")
+    func reselectingIsFree() async throws {
+        let fixture = try FixtureTree()
+        try fixture.file("a.bin", bytes: 1_000)
+
+        let rootPath = fixture.root.standardizedFileURL.path
+        let scan = await ScanHarness.run(fixture.root)
+        let inspector = ItemInspector()
+
+        inspector.inspect(path: rootPath + "/a.bin", in: scan.root, rootPath: rootPath)
+        try await waitForDetails(inspector)
+        try await waitForPreview(inspector)
+
+        // The second call must not put the panel back into loading. Both views re-emit the
+        // selection they already hold, and a preview that restarts on each of those is a panel
+        // that flickers for no reason.
+        inspector.inspect(path: rootPath + "/a.bin", in: scan.root, rootPath: rootPath)
+        #expect(inspector.preview == .ready(URL(fileURLWithPath: rootPath + "/a.bin")))
+    }
+
+    @Test("The preview waits for the selection to settle, but the details do not")
+    func detailsArriveAheadOfThePreview() async throws {
+        let fixture = try FixtureTree()
+        try fixture.file("a.bin", bytes: 1_000)
+        try fixture.file("b.bin", bytes: 2_000)
+
+        let rootPath = fixture.root.standardizedFileURL.path
+        let scan = await ScanHarness.run(fixture.root)
+        let inspector = ItemInspector()
+
+        // Passing through on the way somewhere else, the way arrowing down a list does.
+        inspector.inspect(path: rootPath + "/a.bin", in: scan.root, rootPath: rootPath)
+        inspector.inspect(path: rootPath + "/b.bin", in: scan.root, rootPath: rootPath)
+        try await waitForDetails(inspector)
+
+        // Details describe the destination immediately. A preview of the file passed through must
+        // never appear beside them.
+        #expect(inspector.details?.name == "b.bin")
+        #expect(inspector.preview != .ready(URL(fileURLWithPath: rootPath + "/a.bin")))
+
+        try await waitForPreview(inspector)
+        #expect(inspector.preview == .ready(URL(fileURLWithPath: rootPath + "/b.bin")))
     }
 
     @Test("A volume root, whose path already ends in a separator, still finds its children")

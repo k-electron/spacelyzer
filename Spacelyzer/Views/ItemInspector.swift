@@ -58,18 +58,24 @@ final class ItemInspector {
     private(set) var preview: PreviewState?
     private(set) var url: URL?
 
-    let activity = ActivityIndicator()
+    /// Longer than the settling time below, so an ordinary selection resolves without a spinner
+    /// appearing and vanishing on its way to the answer.
+    let activity = ActivityIndicator(delay: .milliseconds(300))
 
     private var work: Task<Void, Never>?
     private var inspectedPath: String?
 
+    /// How long a selection has to hold still before Quick Look is asked for anything.
+    ///
+    /// Details land immediately; only the preview waits. Walking down a list of files with the
+    /// arrow keys would otherwise commission a render for every row passed through on the way to
+    /// the one that was wanted, and each of those is real work in another process.
+    private static let previewSettleTime = Duration.milliseconds(150)
+
     /// Looks at whatever is selected. The path is the same one both views already agree on, so the
     /// item is found by descending the measured tree rather than by scanning the disk again.
     func inspect(path: String, in root: ScannedItem, rootPath: String) {
-        guard let item = Self.item(at: path, in: root, rootPath: rootPath) else {
-            clear()
-            return
-        }
+        guard path != inspectedPath else { return }
 
         work?.cancel()
         inspectedPath = path
@@ -77,22 +83,32 @@ final class ItemInspector {
         let target = URL(fileURLWithPath: path).standardizedFileURL
         url = target
         preview = .loading
-        activity.begin("Looking at \(item.name)")
+        activity.begin("Looking at \((path as NSString).lastPathComponent)")
 
         work = Task {
             // Released on every path, including a superseded one, or the panel would report that
             // it is still working long after it stopped.
             defer { self.activity.end() }
 
+            // The walk down to the item goes with the read rather than staying on the main actor.
+            // A folder can hold hundreds of thousands of children and finding one among them is a
+            // linear scan, which is not something to do between a click and its response.
             let resolved = await Task.detached(priority: .userInitiated) {
-                Self.resolve(item: item, at: target, path: path)
+                Self.item(at: path, in: root, rootPath: rootPath).map {
+                    Self.resolve(item: $0, at: target, path: path)
+                }
             }.value
 
             // A selection that moved on while this was in flight discards the answer rather than
             // showing it against the wrong file.
             guard !Task.isCancelled, self.inspectedPath == path else { return }
-            self.details = resolved.details
-            self.preview = resolved.preview
+            self.details = resolved?.details
+
+            if case .ready = resolved?.preview {
+                try? await Task.sleep(for: Self.previewSettleTime)
+                guard !Task.isCancelled, self.inspectedPath == path else { return }
+            }
+            self.preview = resolved?.preview
         }
     }
 
