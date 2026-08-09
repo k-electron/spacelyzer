@@ -11,6 +11,7 @@ struct MainSplitView: View {
     @State private var sortOrder: SortOrder = .size
     @State private var volumes: [VolumeDescriptor] = []
     @State private var recents: [RecentLocation] = []
+    @State private var appearance: AppearancePreference = .system
 
     private let formatter = SizeFormatter()
 
@@ -27,9 +28,12 @@ struct MainSplitView: View {
         }
         .frame(minWidth: 900, minHeight: 560)
         .toolbar { toolbarContent }
+        // Applied at the root so the whole window follows, including sheets and popovers.
+        .preferredColorScheme(appearance.colorScheme)
         .task {
             volumes = broker.mountedVolumes()
             recents = recentLocations.all()
+            appearance = Preferences.current(in: modelContext).appearance
         }
         .onChange(of: controller.state) { _, state in
             // Recorded only once a scan has actually produced a total worth returning to.
@@ -42,7 +46,9 @@ struct MainSplitView: View {
     @ViewBuilder
     private var leadingPane: some View {
         VStack(spacing: 0) {
-            if controller.isRunning {
+            // Driven by the delay-then-show indicator rather than by `isRunning`, so a scan that
+            // finishes quickly never flashes a progress panel (FR-069).
+            if controller.activity.isVisible {
                 ScanProgressView(
                     totals: controller.totals,
                     currentPath: controller.currentPath,
@@ -172,6 +178,17 @@ struct MainSplitView: View {
         .contentShape(.rect)
     }
 
+    private var appearanceBinding: Binding<AppearancePreference> {
+        Binding(
+            get: { appearance },
+            set: { newValue in
+                appearance = newValue
+                Preferences.current(in: modelContext).appearance = newValue
+                try? modelContext.save()
+            }
+        )
+    }
+
     private var trailingPane: some View {
         ContentUnavailableView(
             "Treemap",
@@ -182,6 +199,21 @@ struct MainSplitView: View {
 
     @ToolbarContentBuilder
     private var toolbarContent: some ToolbarContent {
+        ToolbarItem {
+            // Kept in the toolbar rather than behind Settings: someone whose Mac is in dark mode
+            // should be able to see how to leave it without going hunting.
+            Menu {
+                Picker("Appearance", selection: appearanceBinding) {
+                    ForEach(AppearancePreference.allCases, id: \.self) { option in
+                        Label(option.label, systemImage: option.symbol).tag(option)
+                    }
+                }
+                .pickerStyle(.inline)
+            } label: {
+                Label("Appearance", systemImage: appearance.symbol)
+            }
+            .help("Switch between light, dark, and the system setting")
+        }
         ToolbarItem {
             Picker("Sort", selection: $sortOrder) {
                 ForEach(SortOrder.allCases) { Text($0.rawValue).tag($0) }

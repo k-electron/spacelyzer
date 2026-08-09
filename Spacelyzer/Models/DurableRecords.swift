@@ -1,17 +1,6 @@
 import Foundation
 import SwiftData
-
-/// A folder the user has chosen to leave out of scanning (FR-010, FR-011).
-@Model
-final class ExclusionRule {
-    var displayPath: String
-    var createdAt: Date
-
-    init(displayPath: String, createdAt: Date = .now) {
-        self.displayPath = displayPath
-        self.createdAt = createdAt
-    }
-}
+import SwiftUI
 
 /// A previously scanned root, so the user can return to it without navigating again (FR-009).
 /// The bookmark survives the folder being renamed or moved.
@@ -30,15 +19,57 @@ final class RecentLocation {
     }
 }
 
+nonisolated enum AppearancePreference: Int, Codable, CaseIterable, Sendable {
+    case system
+    case light
+    case dark
+
+    var label: String {
+        switch self {
+        case .system: "Match System"
+        case .light: "Light"
+        case .dark: "Dark"
+        }
+    }
+
+    var symbol: String {
+        switch self {
+        case .system: "circle.lefthalf.filled"
+        case .light: "sun.max"
+        case .dark: "moon"
+        }
+    }
+
+    /// Nil hands control back to the system rather than pinning either scheme.
+    var colorScheme: ColorScheme? {
+        switch self {
+        case .system: nil
+        case .light: .light
+        case .dark: .dark
+        }
+    }
+}
+
 @Model
 final class Preferences {
     var sizeUnitConvention: SizeUnitConvention
-    /// Files below this size are skipped by duplicate detection, since grouping them recovers
-    /// negligible space for significant hashing cost. Adjustable down to zero.
-    var duplicateMinimumFileSize: Int64
+    var appearance: AppearancePreference
 
-    init(sizeUnitConvention: SizeUnitConvention = .decimal, duplicateMinimumFileSize: Int64 = 1_000_000) {
+    init(sizeUnitConvention: SizeUnitConvention = .decimal, appearance: AppearancePreference = .system) {
         self.sizeUnitConvention = sizeUnitConvention
-        self.duplicateMinimumFileSize = duplicateMinimumFileSize
+        self.appearance = appearance
+    }
+
+    /// There is exactly one preferences record. Fetching creates it on first launch rather than
+    /// leaving every call site to cope with its absence.
+    @MainActor
+    static func current(in context: ModelContext) -> Preferences {
+        if let existing = try? context.fetch(FetchDescriptor<Preferences>()).first {
+            return existing
+        }
+        let created = Preferences()
+        context.insert(created)
+        try? context.save()
+        return created
     }
 }
