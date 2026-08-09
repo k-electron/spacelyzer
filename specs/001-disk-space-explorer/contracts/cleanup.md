@@ -11,17 +11,28 @@ view, so that no future entry point can reach removal without passing them.
 ## RemovalGuard
 
 ```swift
-protocol RemovalGuard {
-    func evaluate(_ candidates: [URL]) -> RemovalPlan
+struct RemovalGuard {
+    func evaluate(_ candidates: [RemovalCandidate]) -> RemovalPlan
+    /// Nil means it may go. Everything else names the reason it may not.
+    func refusal(for url: URL) -> RemovalRefusal?
 }
 
+struct RemovalCandidate { let url: URL; let size: Int64 }
+
 struct RemovalPlan {
-    let permitted: [PlannedRemoval]     // path, size
-    let refused: [RefusedRemoval]       // path, reason
-    let totalReclaimable: Int64
+    let permitted: [PlannedRemoval]     // url, size
+    let refused: [RefusedRemoval]       // url, reason
+    var totalReclaimable: Int64
     let trashAvailable: Bool
 }
 ```
+
+A candidate carries the size the scan already measured rather than the guard reading it. A
+folder's size is the sum of everything beneath it, and rediscovering that here would mean walking
+the disk at the moment the user is waiting on a dialog.
+
+`refusal(for:)` is public on the guard rather than internal to `evaluate`, because the service
+calls it again per item at the moment of removal.
 
 **Contract**
 
@@ -40,27 +51,31 @@ struct RemovalPlan {
 ## RemovalService
 
 ```swift
-protocol RemovalService {
-    func perform(
-        _ plan: RemovalPlan,
-        disposition: Disposition,
-        grant: AccessGrant
-    ) -> AsyncStream<RemovalEvent>
+struct RemovalService {
+    init(guardian: RemovalGuard)
+    func perform(_ plan: RemovalPlan, disposition: Disposition) -> AsyncStream<RemovalEvent>
 }
 
-enum Disposition { case trash, deletePermanently }
+enum Disposition { case trash, deletedPermanently }
 
 enum RemovalEvent {
-    case removed(path: URL, trashURL: URL?, size: Int64)
-    case failed(path: URL, reason: RemovalFailure)
-    case finished(RemovalHistoryEntry)
+    case removed(RemovedItem)               // originalPath, trashPath, size
+    case failed(RemovalFailureRecord)       // path, reason
+    case finished(RemovalSummary)
 }
 ```
 
+No access grant: the app is unsandboxed, so removal has the same reach as the scan and there is no
+scope to carry. `finished` yields a value summary rather than a stored record — the service runs
+off the main actor and a persistent model cannot cross that boundary, so the window records what
+came back.
+
 **Contract**
 
-- Only a `RemovalPlan` can be executed. There is no path that takes raw URLs, so the guard cannot
-  be bypassed.
+- Only a `RemovalPlan` can be executed. There is no entry point taking raw URLs.
+- A plan is a value, and a value can be constructed by anyone. So the guard is consulted a second
+  time, per item, immediately before that item moves. Passing a hand-built plan is therefore not a
+  way around the guard, only a way to be refused later than usual.
 - `disposition` defaults to `.trash` at every call site. `.deletePermanently` is reachable only
   from an explicit, separately confirmed user choice carrying an irreversibility warning (FR-054).
 - Each trashed item's resulting Trash URL is captured and recorded. It is the only reliable handle
@@ -82,22 +97,30 @@ enum RemovalEvent {
 ## UndoService
 
 ```swift
-protocol UndoService {
-    func canUndo(_ entry: RemovalHistoryEntry) -> UndoAvailability
-    func undo(_ entry: RemovalHistoryEntry, grant: AccessGrant) -> AsyncStream<UndoEvent>
+struct UndoService {
+    func availability(of items: [RemovedItem], disposition: Disposition) -> UndoAvailability
+    func undo(_ items: [RemovedItem]) -> AsyncStream<UndoEvent>
 }
 
 enum UndoEvent {
-    case restored(path: URL)
-    case failed(path: URL, reason: UndoBlocked)
-    case finished(UndoOutcome)
+    case restored(RestoredItem)
+    case failed(UndoFailureRecord)          // path, reason
+    case finished(UndoSummary)
 }
 
 enum UndoAvailability {
     case available
-    case unavailable(reason: UndoBlocked)   // trashEmptied, originalLocationMissing, wasPermanent
+    case unavailable(UndoBlocked)
+    // trashEmptied, originalLocationMissing, wasPermanent, somethingIsThereNow, failed
 }
 ```
+
+Takes the removed items as values rather than the stored entry, for the same reason the service
+returns one: this runs off the main actor. The window reads the entry and hands over its contents.
+
+`somethingIsThereNow` was added during implementation. Whatever occupies the original path arrived
+after the removal, and writing over it would be a second deletion nobody asked for — so it is a
+refusal with a name rather than a silent overwrite.
 
 **Contract**
 

@@ -28,6 +28,8 @@ final class ScanController {
 
     private var scanTask: Task<Void, Never>?
     private var accountingTask: Task<Void, Never>?
+    /// Subtrees taken out by a removal, held in case it is undone.
+    private var forgotten: [(path: String, item: ScannedItem)] = []
     private let engine = ScanEngine()
     private let accountant = VolumeAccountant()
 
@@ -96,6 +98,121 @@ final class ScanController {
             self.accounting = result
             self.accountingActivity.end()
         }
+    }
+
+    /// Takes removed items out of the result and settles the sizes above them (FR-057).
+    ///
+    /// A rescan would give the same answer and cost a walk of the whole disk to do it. The tree is
+    /// a value, so the cheap thing is to build the version of it that no longer contains what was
+    /// just removed, and hand that to the views.
+    func forget(paths: [String]) {
+        guard !paths.isEmpty, let root, let rootURL else { return }
+
+        let removed = Set(paths)
+        let rootPath = rootURL.standardizedFileURL.path
+
+        // Kept so an undo can put them back where they were. Rescanning to recover sizes the app
+        // already knew would cost a walk of the whole disk to learn nothing new.
+        for path in paths {
+            if let item = ItemInspector.item(at: path, in: root, rootPath: rootPath) {
+                forgotten.append((path: path, item: item))
+            }
+        }
+
+        // The root itself going means there is no result left to show rather than an empty one.
+        guard !removed.contains(rootPath) else {
+            self.root = nil
+            totals = ScanTotals()
+            return
+        }
+
+        guard let pruned = Self.pruning(root, at: rootPath, removing: removed) else { return }
+        self.root = pruned
+        totals = ScanTotals(measuredBytes: pruned.cumulativeSize, itemsSeen: pruned.itemCount)
+    }
+
+    /// Puts back what `forget` took out, for the items an undo actually restored (FR-057).
+    func remember(paths: [String]) {
+        guard !paths.isEmpty, let root, let rootURL else { return }
+
+        let wanted = Set(paths)
+        let returning = forgotten.filter { wanted.contains($0.path) }
+        guard !returning.isEmpty else { return }
+
+        let rootPath = rootURL.standardizedFileURL.path
+        var tree = root
+        for entry in returning {
+            tree =
+                Self.grafting(tree, at: rootPath, inserting: entry.item, at: entry.path) ?? tree
+        }
+
+        self.root = tree
+        forgotten.removeAll { wanted.contains($0.path) }
+        totals = ScanTotals(measuredBytes: tree.cumulativeSize, itemsSeen: tree.itemCount)
+    }
+
+    /// Reinserts a subtree at the path it came from, settling totals back up the chain.
+    ///
+    /// Returns nil when the way down no longer exists, which happens if a parent folder was
+    /// removed in a later batch. The item is genuinely back on disk in that case; it simply has no
+    /// place in this result, and the honest answer is to leave the result alone.
+    nonisolated static func grafting(
+        _ item: ScannedItem,
+        at path: String,
+        inserting child: ScannedItem,
+        at target: String
+    ) -> ScannedItem? {
+        let prefix = path + "/"
+        guard target.hasPrefix(prefix) else { return nil }
+
+        var kept = item
+        let remainder = target.dropFirst(prefix.count)
+
+        if let separator = remainder.firstIndex(of: "/") {
+            let nextName = String(remainder[remainder.startIndex..<separator])
+            guard
+                let index = kept.children.firstIndex(where: { $0.name == nextName }),
+                let updated = Self.grafting(
+                    kept.children[index], at: prefix + nextName, inserting: child, at: target
+                )
+            else { return nil }
+            kept.children[index] = updated
+        } else {
+            // Already there, so a second undo of the same batch changes nothing.
+            guard !kept.children.contains(where: { $0.name == String(remainder) }) else {
+                return item
+            }
+            kept.children.append(child)
+        }
+
+        kept.cumulativeSize = kept.ownSize + kept.children.reduce(0) { $0 + $1.cumulativeSize }
+        kept.itemCount = 1 + kept.children.reduce(0) { $0 + $1.itemCount }
+        return kept
+    }
+
+    /// Rebuilds only the path down to what was removed, settling each folder's totals on the way
+    /// back up so no ancestor keeps claiming space that is no longer there.
+    ///
+    /// A subtree with nothing going in it is returned exactly as it stands. Rebuilding the whole
+    /// tree to delete one file would allocate a million nodes to change a handful of them, on the
+    /// main actor, immediately after the user pressed a button.
+    nonisolated static func pruning(
+        _ item: ScannedItem,
+        at path: String,
+        removing: Set<String>
+    ) -> ScannedItem? {
+        if removing.contains(path) { return nil }
+
+        let prefix = path + "/"
+        guard removing.contains(where: { $0.hasPrefix(prefix) }) else { return item }
+
+        var kept = item
+        kept.children = item.children.compactMap {
+            pruning($0, at: prefix + $0.name, removing: removing)
+        }
+        kept.cumulativeSize = kept.ownSize + kept.children.reduce(0) { $0 + $1.cumulativeSize }
+        kept.itemCount = 1 + kept.children.reduce(0) { $0 + $1.itemCount }
+        return kept
     }
 
     /// Re-runs the current location, which is what makes a stale result actionable (FR-009).

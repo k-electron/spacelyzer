@@ -270,28 +270,29 @@ confirm the files return to their original locations.
 
 ### Tests for User Story 7
 
-- [ ] T093 [P] [US7] Test that protected system locations and the app's own container are refused in `SpacelyzerTests/RemovalGuardTests.swift` (FR-055, Principle II)
-- [ ] T094 [P] [US7] Test that producing a removal plan has no side effects in `SpacelyzerTests/RemovalGuardTests.swift`
-- [ ] T095 [P] [US7] Test that refusing some candidates still permits the remainder in `SpacelyzerTests/RemovalGuardTests.swift` (FR-055)
-- [ ] T096 [P] [US7] Test that removal defaults to the Trash and captures each resulting Trash URL in `SpacelyzerTests/RemovalServiceTests.swift` (FR-053)
-- [ ] T097 [P] [US7] Test that a per-item failure does not abort the batch and appears in the summary in `SpacelyzerTests/RemovalServiceTests.swift` (FR-056)
-- [ ] T098 [P] [US7] Test that undo restores every item when they remain in the Trash in `SpacelyzerTests/UndoServiceTests.swift` (SC-014)
-- [ ] T099 [P] [US7] Test that an impossible undo reports its specific reason and never claims success in `SpacelyzerTests/UndoServiceTests.swift` (FR-060)
-- [ ] T100 [P] [US7] Add a UI test covering select, confirm, remove, and undo in `SpacelyzerUITests/RemovalFlowTests.swift`
+- [X] T093 [P] [US7] Test that protected system locations and the app's own container are refused in `SpacelyzerTests/RemovalGuardTests.swift` (FR-055, Principle II) — plus roots, the home folder, the folders the system expects, and that their contents stay removable
+- [X] T094 [P] [US7] Test that producing a removal plan has no side effects in `SpacelyzerTests/RemovalGuardTests.swift`
+- [X] T095 [P] [US7] Test that refusing some candidates still permits the remainder in `SpacelyzerTests/RemovalGuardTests.swift` (FR-055)
+- [X] T096 [P] [US7] Test that removal defaults to the Trash and captures each resulting Trash URL in `SpacelyzerTests/RemovalServiceTests.swift` (FR-053)
+- [X] T097 [P] [US7] Test that a per-item failure does not abort the batch and appears in the summary in `SpacelyzerTests/RemovalServiceTests.swift` (FR-056)
+- [X] T098 [P] [US7] Test that undo restores every item when they remain in the Trash in `SpacelyzerTests/UndoServiceTests.swift` (SC-014)
+- [X] T099 [P] [US7] Test that an impossible undo reports its specific reason and never claims success in `SpacelyzerTests/UndoServiceTests.swift` (FR-060) — emptied Trash, missing folder, occupied location, and a partial restoration that must not read as a whole one
+- [X] T100 [P] [US7] Add a UI test covering select, confirm, remove, and undo in `SpacelyzerUITests/RemovalFlowTests.swift` — reads the confirmation before agreeing to it, so an app proposing anything but the test's own fixture fails the test rather than deleting
 
 ### Implementation for User Story 7
 
-- [ ] T101 [US7] Implement `RemovalGuard` producing an inert `RemovalPlan`, evaluated before the confirmation appears, in `Spacelyzer/Cleanup/RemovalGuard.swift` (FR-055)
-- [ ] T102 [US7] Determine Trash availability for the target volume up front in `Spacelyzer/Cleanup/RemovalGuard.swift` (FR-053)
-- [ ] T103 [US7] Implement `RemovalService` accepting only a plan, trashing items and capturing resulting Trash URLs, in `Spacelyzer/Cleanup/RemovalService.swift` (FR-051 through FR-053)
-- [ ] T104 [US7] Stream per-item removal events, continue past failures, and always emit a finished summary in `Spacelyzer/Cleanup/RemovalService.swift` (FR-056)
-- [ ] T105 [US7] Build the confirmation dialog listing affected items, count, and reclaimable total in `Spacelyzer/Views/RemovalConfirmationView.swift` (FR-052)
-- [ ] T106 [US7] Add permanent deletion as a separate explicit choice with an irreversibility warning in `Spacelyzer/Views/RemovalConfirmationView.swift` (FR-054)
-- [ ] T107 [US7] Keep the interface interactive and the cancel control reachable during removal in `Spacelyzer/Views/RemovalProgressView.swift` (FR-071, Principle III)
-- [ ] T108 [US7] Update both views to reflect reclaimed space without a rescan in `Spacelyzer/Cleanup/RemovalService.swift` (FR-057)
-- [ ] T109 [US7] Implement `UndoService` streaming per-item restoration events in `Spacelyzer/Cleanup/UndoService.swift` (FR-059, FR-070)
-- [ ] T110 [US7] Report undo availability before offering the action, distinguishing emptied Trash, missing original location, and permanent deletion, in `Spacelyzer/Cleanup/UndoService.swift` (FR-060)
-- [ ] T111 [US7] Persist removal history and build the reviewable, clearable history view in `Spacelyzer/Views/RemovalHistoryView.swift` (FR-061)
+- [X] T101 [US7] Implement `RemovalGuard` producing an inert `RemovalPlan`, evaluated before the confirmation appears, in `Spacelyzer/Cleanup/RemovalGuard.swift` (FR-055)
+- [X] T102 [US7] Determine Trash availability for the target volume up front in `Spacelyzer/Cleanup/RemovalGuard.swift` (FR-053) — all of the selection rather than any of it, since the user is about to be told the whole removal is recoverable
+- [X] T103 [US7] Implement `RemovalService` accepting only a plan, trashing items and capturing resulting Trash URLs, in `Spacelyzer/Cleanup/RemovalService.swift` (FR-051 through FR-053) — and re-checking each item against the guard on its way out, because a plan is a value and a value can be built by anyone
+- [X] T104 [US7] Stream per-item removal events, continue past failures, and always emit a finished summary in `Spacelyzer/Cleanup/RemovalService.swift` (FR-056)
+- [X] T105 [US7] Build the confirmation dialog listing affected items, count, and reclaimable total in `Spacelyzer/Views/RemovalConfirmationView.swift` (FR-052)
+- [X] T106 [US7] Add permanent deletion as a separate explicit choice with an irreversibility warning in `Spacelyzer/Views/RemovalConfirmationView.swift` (FR-054)
+- [X] T107 [US7] Keep the interface interactive and the cancel control reachable during removal in `Spacelyzer/Views/RemovalConfirmationView.swift` (FR-071, Principle III) — kept beside the progress it belongs to rather than in a file of its own
+- [X] T108 [US7] Update both views to reflect reclaimed space without a rescan in `Spacelyzer/Scanning/ScanController.swift` (FR-057) — prunes only the path down to what went, and keeps the pruned subtrees so an undo can graft them back rather than costing a fresh walk of the disk
+- [X] T109 [US7] Implement `UndoService` streaming per-item restoration events in `Spacelyzer/Cleanup/UndoService.swift` (FR-059, FR-070)
+- [X] T110 [US7] Report undo availability before offering the action, distinguishing emptied Trash, missing original location, and permanent deletion, in `Spacelyzer/Cleanup/UndoService.swift` (FR-060)
+- [X] T111 [US7] Persist removal history and build the reviewable, clearable history view in `Spacelyzer/Views/RemovalHistoryView.swift` (FR-061)
+- [ ] T111a [US7] Extend the shared selection to more than one item so a removal can be asked of several at once (FR-051) — the batch machinery takes any number and a folder already stands for many files, but the selection itself still holds one path, which is a gap against the requirement rather than a decision
 
 **Checkpoint**: Space can be reclaimed safely and reversibly
 

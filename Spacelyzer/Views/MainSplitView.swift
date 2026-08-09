@@ -21,6 +21,8 @@ struct MainSplitView: View {
     @State private var selection = SelectionCoordinator()
     @State private var filters = FilterCoordinator()
     @State private var inspector = ItemInspector()
+    @State private var removal = RemovalCoordinator()
+    @State private var showingHistory = false
     /// Closed until asked for. It answers a question about one item, which is not the question
     /// anyone opens the app with, and it costs a Quick Look render for whatever is selected.
     @State private var showingDetails = false
@@ -36,6 +38,10 @@ struct MainSplitView: View {
 
     private var exclusionRules: ExclusionRules {
         ExclusionRules(context: modelContext)
+    }
+
+    private var removalHistory: RemovalHistory {
+        RemovalHistory(context: modelContext)
     }
 
     private var resultIsStale: Bool {
@@ -102,6 +108,45 @@ struct MainSplitView: View {
                 scanRoot: controller.rootURL,
                 chooseFolder: { broker.chooseFolder() }
             )
+        }
+        .sheet(isPresented: $showingHistory) {
+            RemovalHistoryView(
+                history: removalHistory,
+                formatter: formatter,
+                onDismiss: { showingHistory = false }
+            )
+        }
+        // Nothing is removed without this having been read first (FR-052).
+        .sheet(isPresented: confirmationBinding) {
+            if let plan = removal.plan {
+                RemovalConfirmationView(
+                    plan: plan,
+                    formatter: formatter,
+                    deletePermanently: $removal.deletePermanently,
+                    onCancel: { removal.cancelConfirmation() },
+                    onConfirm: { removal.confirm() }
+                )
+            }
+        }
+        .sheet(isPresented: summaryBinding) {
+            if let summary = removal.summary {
+                RemovalSummaryView(
+                    summary: summary,
+                    undoAvailability: removal.undoAvailability,
+                    undoSummary: removal.undoSummary,
+                    isUndoing: removal.isUndoing,
+                    formatter: formatter,
+                    onUndo: { undoLastRemoval(summary) },
+                    onDismiss: { removal.dismissSummary() }
+                )
+            }
+        }
+        // Recorded and taken out of the result the moment a batch finishes, so both views show
+        // the space back without anyone waiting on a fresh scan (FR-057, FR-061).
+        .onChange(of: removal.summary) { previous, summary in
+            guard previous == nil, let summary, !summary.removed.isEmpty else { return }
+            removalHistory.record(summary)
+            forgetRemoved(summary.removed.map(\.originalPath))
         }
         .task {
             volumes = broker.mountedVolumes()
@@ -170,6 +215,63 @@ struct MainSplitView: View {
         selection.resolve(withinRoot: rootPath)
     }
 
+    private var confirmationBinding: Binding<Bool> {
+        Binding(get: { removal.isConfirming }, set: { if !$0 { removal.cancelConfirmation() } })
+    }
+
+    private var summaryBinding: Binding<Bool> {
+        Binding(get: { removal.summary != nil }, set: { if !$0 { removal.dismissSummary() } })
+    }
+
+    /// The one way anything gets removed. What is selected is what is proposed, and the guard
+    /// decides the rest before the user is asked anything (FR-051, FR-055).
+    private func proposeRemovalOfSelection() {
+        guard
+            let path = selection.selectedPath,
+            let root = controller.root,
+            let url = controller.rootURL,
+            let item = ItemInspector.item(
+                at: path, in: root, rootPath: url.standardizedFileURL.path
+            )
+        else { return }
+
+        removal.propose([
+            RemovalCandidate(url: URL(fileURLWithPath: path), size: item.cumulativeSize)
+        ])
+    }
+
+    /// Both views read from the same tree, so taking the removed items out of it is all that is
+    /// needed for the picture and the list to agree about the space.
+    private func forgetRemoved(_ paths: [String]) {
+        controller.forget(paths: paths)
+        selection.clear()
+        inspector.clear()
+        refreshViewsFromResult()
+    }
+
+    private func undoLastRemoval(_ summary: RemovalSummary) {
+        let entry = removalHistory.mostRecent()
+        removal.performUndo(of: summary.removed) { result in
+            if let entry { removalHistory.markUndone(entry, summary: result) }
+            // Only what actually came back. Putting the whole batch back into the result when
+            // half of it failed to restore would be the same lie the summary refuses to tell.
+            guard !result.restored.isEmpty else { return }
+            controller.remember(paths: result.restored.map(\.path))
+            refreshViewsFromResult()
+        }
+    }
+
+    private func refreshViewsFromResult() {
+        guard let root = controller.root, let url = controller.rootURL else {
+            coordinator.clear()
+            filters.clearScan()
+            return
+        }
+        let rootPath = url.standardizedFileURL.path
+        coordinator.present(root: root, path: rootPath)
+        filters.present(root: root, path: rootPath)
+    }
+
     private func inspectSelection(_ path: String?) {
         guard showingDetails else { return }
         guard let path, let root = controller.root, let url = controller.rootURL else {
@@ -197,6 +299,16 @@ struct MainSplitView: View {
     private var leadingPane: some View {
         VStack(spacing: 0) {
             locationHeader
+
+            // In the pane, never over the window. A modal that locks everything until removal
+            // finishes would block the control that stops it (FR-071, Principle III).
+            if removal.isRemoving {
+                RemovalProgressView(
+                    removed: removal.removedCount,
+                    planned: removal.plannedCount,
+                    onCancel: { removal.cancel() }
+                )
+            }
 
             if let pending = pendingScan {
                 AccessWarningView(
@@ -563,6 +675,26 @@ struct MainSplitView: View {
             Picker("Sort", selection: $sortOrder) {
                 ForEach(SortOrder.allCases) { Text($0.rawValue).tag($0) }
             }
+        }
+        ToolbarItem {
+            Button {
+                proposeRemovalOfSelection()
+            } label: {
+                Label("Remove", systemImage: "trash")
+            }
+            // The Finder shortcut for the same act, so muscle memory lands somewhere expected.
+            // It opens the confirmation; nothing is removed until that is read and agreed to.
+            .keyboardShortcut(.delete, modifiers: .command)
+            .disabled(selection.selectedPath == nil || controller.isRunning || removal.isRemoving)
+            .help("Move the selected item to the Trash")
+        }
+        ToolbarItem {
+            Button {
+                showingHistory = true
+            } label: {
+                Label("History", systemImage: "clock.arrow.circlepath")
+            }
+            .help("Review what has been removed")
         }
         ToolbarItem {
             Button {
