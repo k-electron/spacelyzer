@@ -32,15 +32,36 @@ final class SpacelyzerUITests: XCTestCase {
         )
     }
 
-    /// The split layout is present from launch, with both sides accounted for. The trailing side
-    /// explains itself until the treemap arrives in User Story 3.
+    /// The split layout is present from launch with both sides accounted for, and neither side is
+    /// blank before a scan has run.
     @MainActor
     func testShowsBothPanesOfTheSplitLayout() throws {
         let app = launchApp()
 
         XCTAssertTrue(
-            app.staticTexts["Treemap"].waitForExistence(timeout: 10),
-            "The trailing pane should be present and labelled rather than blank"
+            app.staticTexts["Choose something to measure"].waitForExistence(timeout: 10),
+            "The leading pane should offer somewhere to start"
+        )
+        XCTAssertTrue(
+            app.staticTexts["Nothing measured yet"].waitForExistence(timeout: 10),
+            "The trailing pane should explain itself rather than sitting blank"
+        )
+    }
+
+    /// The treemap owns the trailing pane, so the accounting from User Story 2 has to stay
+    /// reachable rather than being displaced by it.
+    @MainActor
+    func testTrailingPaneOffersBothTreemapAndTotals() throws {
+        let app = launchApp()
+
+        let totals = app.radioButtons["Totals"]
+        XCTAssertTrue(totals.waitForExistence(timeout: 10), "A Totals view should be selectable")
+        XCTAssertTrue(app.radioButtons["Treemap"].exists, "A Treemap view should be selectable")
+
+        totals.click()
+        XCTAssertTrue(
+            app.staticTexts["No totals yet"].waitForExistence(timeout: 5),
+            "Switching to Totals before a scan should explain why it is empty"
         )
     }
 
