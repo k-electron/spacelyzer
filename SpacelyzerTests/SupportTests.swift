@@ -41,11 +41,32 @@ struct ActivityIndicatorTests {
     func slowWorkBecomesVisible() async throws {
         let indicator = ActivityIndicator(delay: .milliseconds(50))
         indicator.begin("scanning")
-        try await Task.sleep(for: .milliseconds(200))
+
+        // Polled rather than slept against. The reveal runs on the main actor, so a fixed sleep
+        // measures how busy the actor is rather than whether the indicator works, and fails
+        // whenever a slower test happens to be running beside it. The contract is that the
+        // indicator appears, not that it appears within one scheduling quantum.
+        try await waitForVisibility(of: indicator)
+
         #expect(indicator.isVisible == true)
+        #expect(indicator.message == "scanning")
 
         indicator.end()
         #expect(indicator.isVisible == false)
+    }
+
+    /// Budgeted in polls rather than elapsed time on purpose. Several suites in this target hold
+    /// the main actor for seconds at a stretch building SwiftData containers, and a wall-clock
+    /// deadline expires during that wait without the loop ever getting a turn to look. Counting
+    /// only the checks that actually ran makes starvation delay the test instead of failing it.
+    private func waitForVisibility(
+        of indicator: ActivityIndicator,
+        polls: Int = 500
+    ) async throws {
+        for _ in 0..<polls {
+            if indicator.isVisible { return }
+            try await Task.sleep(for: .milliseconds(10))
+        }
     }
 }
 
