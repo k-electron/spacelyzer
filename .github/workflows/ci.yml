@@ -25,7 +25,7 @@ jobs:
     timeout-minutes: 30
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Select Xcode
         run: |
@@ -61,7 +61,7 @@ jobs:
 
       - name: Upload results
         if: failure()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: unit-xcresult
           path: .build/unit.xcresult
@@ -76,7 +76,7 @@ jobs:
     timeout-minutes: 45
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Select Xcode
         run: |
@@ -111,7 +111,7 @@ jobs:
 
       - name: Upload results
         if: failure()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: interface-xcresult
           path: .build/interface.xcresult
