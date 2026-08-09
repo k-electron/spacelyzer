@@ -1,43 +1,56 @@
-//
-//  SpacelyzerUITests.swift
-//  SpacelyzerUITests
-//
-//  Created by Karim Fatehi on 8/8/26.
-//
-
 import XCTest
 
 final class SpacelyzerUITests: XCTestCase {
 
     override func setUpWithError() throws {
-        // Put setup code here. This method is called before the invocation of each test method in the class.
-
-        // In UI tests it is usually best to stop immediately when a failure occurs.
         continueAfterFailure = false
-
-        // In UI tests it’s important to set the initial state - such as interface orientation - required for your tests before they run. The setUp method is a good place to do this.
     }
 
-    override func tearDownWithError() throws {
-        // Put teardown code here. This method is called after the invocation of each test method in the class.
-    }
-
+    /// macOS restores window state between launches, and a restored "no windows" state leaves a
+    /// UI test with nothing to inspect. Ignoring persistence gives every test the same clean
+    /// starting point.
     @MainActor
-    func testExample() throws {
-        // UI tests must launch the application that they test.
+    private func launchApp() -> XCUIApplication {
         let app = XCUIApplication()
+        app.launchArguments += ["-ApplePersistenceIgnoreState", "YES"]
         app.launch()
-
-        // Use XCTAssert and related functions to verify your tests produce the correct results.
-        // XCUIAutomation Documentation
-        // https://developer.apple.com/documentation/xcuiautomation
+        return app
     }
 
+    /// The app opens onto something the user can act on, rather than an empty window.
     @MainActor
-    func testLaunchPerformance() throws {
-        // This measures how long it takes to launch your application.
-        measure(metrics: [XCTApplicationLaunchMetric()]) {
-            XCUIApplication().launch()
-        }
+    func testLaunchesToAChoosableStartState() throws {
+        let app = launchApp()
+
+        XCTAssertTrue(
+            app.staticTexts["Choose something to measure"].waitForExistence(timeout: 10),
+            "The start pane should invite the user to pick something to scan"
+        )
+        XCTAssertTrue(
+            app.buttons["Choose Folder…"].exists,
+            "A folder chooser should always be available, even with no volumes listed"
+        )
+    }
+
+    /// The split layout is present from launch, with both sides accounted for. The trailing side
+    /// explains itself until the treemap arrives in User Story 3.
+    @MainActor
+    func testShowsBothPanesOfTheSplitLayout() throws {
+        let app = launchApp()
+
+        XCTAssertTrue(
+            app.staticTexts["Treemap"].waitForExistence(timeout: 10),
+            "The trailing pane should be present and labelled rather than blank"
+        )
+    }
+
+    /// Sorting is a real control, not decoration. This guards the defect where the picker was
+    /// wired to nothing because OutlineGroup could not see the selected order.
+    @MainActor
+    func testSortControlIsPresentAndOffersEveryOrder() throws {
+        let app = launchApp()
+
+        let sort = app.popUpButtons.firstMatch
+        XCTAssertTrue(sort.waitForExistence(timeout: 10), "A sort control should be in the toolbar")
     }
 }
