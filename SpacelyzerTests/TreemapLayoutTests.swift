@@ -185,6 +185,56 @@ struct TreemapLayoutTests {
         #expect(empty.nodes.contains { $0.name == "root" })
     }
 
+    @Test("Hit testing finds the deepest rectangle under a point")
+    func hitTestingPrefersTheDeepestNode() throws {
+        let root = item("root", 1_000, children: [
+            item("folder", 1_000, children: [item("inner.bin", 1_000)])
+        ])
+
+        let layout = SquarifiedLayout().layout(root: root, rootPath: "/root", in: canvas)
+        let index = SpatialIndex(layout: layout)
+
+        // All three cover the centre. The one drawn last is the one the user is pointing at.
+        let hit = try #require(index.node(at: CGPoint(x: 400, y: 300)))
+        #expect(hit.name == "inner.bin")
+
+        #expect(index.node(at: CGPoint(x: -10, y: 300)) == nil)
+        #expect(index.node(at: CGPoint(x: 400, y: 9_000)) == nil)
+    }
+
+    @Test("Hit testing agrees with the rectangles the layout produced")
+    func hitTestingAgreesWithGeometry() throws {
+        let children = (0..<40).map { item("f\($0).bin", Int64(1_000 - $0 * 10)) }
+        let root = item("root", children.reduce(Int64(0)) { $0 + $1.cumulativeSize }, children: children)
+
+        let layout = SquarifiedLayout().layout(root: root, rootPath: "/root", in: canvas)
+        let index = SpatialIndex(layout: layout)
+
+        // Sampling the centre of each rectangle should find that rectangle, or something drawn
+        // on top of it — never something elsewhere on the canvas.
+        for node in layout.nodes where node.rect.width > 4 && node.rect.height > 4 {
+            let centre = CGPoint(x: node.rect.midX, y: node.rect.midY)
+            let hit = try #require(index.node(at: centre))
+            #expect(hit.rect.contains(centre))
+        }
+    }
+
+    @Test("Drilling resolves a rectangle back to the subtree it came from")
+    func pathsResolveBackToItems() throws {
+        let root = item("root", 500, children: [
+            item("folder", 500, children: [item("deep.bin", 500)])
+        ])
+
+        let resolved = try #require(
+            LayoutCoordinator.resolve(path: "/scan/folder", from: root, at: "/scan")
+        )
+        #expect(resolved.name == "folder")
+
+        #expect(LayoutCoordinator.resolve(path: "/scan", from: root, at: "/scan")?.name == "root")
+        #expect(LayoutCoordinator.resolve(path: "/elsewhere", from: root, at: "/scan") == nil)
+        #expect(LayoutCoordinator.resolve(path: "/scan/missing", from: root, at: "/scan") == nil)
+    }
+
     @Test("Rectangles stay closer to square than a naive strip layout would manage")
     func aspectRatiosStayReasonable() {
         // Squarified layout earns its complexity here. Slivers make areas impossible to compare,

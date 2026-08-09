@@ -15,6 +15,8 @@ struct MainSplitView: View {
     /// Held back until the user has seen what a scan of it will miss (FR-018).
     @State private var pendingScan: URL?
     @State private var showingExclusions = false
+    @State private var coordinator = LayoutCoordinator()
+    @State private var trailingTab: TrailingTab = .treemap
     /// The list in force when the displayed result was produced, so a later change to it can be
     /// recognised as making that result stale rather than merely old (FR-013).
     @State private var scannedWithExclusions: [URL] = []
@@ -62,11 +64,23 @@ struct MainSplitView: View {
             broker.refreshAccessState()
         }
         .onChange(of: controller.state) { _, state in
+            guard let url = controller.rootURL else { return }
+
+            // Partial results are worth drawing, so a cancelled scan gets a picture too.
+            if state == .completed || state == .cancelled, let root = controller.root {
+                coordinator.present(root: root, path: url.standardizedFileURL.path)
+            }
+
             // Recorded only once a scan has actually produced a total worth returning to.
-            guard state == .completed, let url = controller.rootURL else { return }
+            guard state == .completed else { return }
             recentLocations.record(url: url, measuredTotal: controller.totals.measuredBytes)
             recents = recentLocations.all()
         }
+    }
+
+    private enum TrailingTab: Hashable {
+        case treemap
+        case totals
     }
 
     /// One way in, so nothing can start a scan without first showing what it will miss.
@@ -82,6 +96,7 @@ struct MainSplitView: View {
     private func startScan(_ url: URL) {
         pendingScan = nil
         broker.acknowledgeGrant()
+        coordinator.clear()
         scannedWithExclusions = exclusionRules.excludedURLs()
         controller.scan(root: url, excluding: scannedWithExclusions)
     }
@@ -254,8 +269,52 @@ struct MainSplitView: View {
         )
     }
 
-    @ViewBuilder
     private var trailingPane: some View {
+        VStack(spacing: 0) {
+            Picker("View", selection: $trailingTab) {
+                Text("Treemap").tag(TrailingTab.treemap)
+                Text("Totals").tag(TrailingTab.totals)
+            }
+            .pickerStyle(.segmented)
+            .labelsHidden()
+            .padding(8)
+
+            Divider()
+
+            switch trailingTab {
+            case .treemap: treemapPane
+            case .totals: totalsPane
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var treemapPane: some View {
+        if coordinator.hasContent {
+            VStack(spacing: 0) {
+                TreemapTrailView(trail: coordinator.trail) { coordinator.navigate(toDepth: $0) }
+                Divider()
+                TreemapCanvas(
+                    snapshot: coordinator.snapshot,
+                    formatter: formatter,
+                    isRecomputing: coordinator.activity.isVisible,
+                    onDrill: { coordinator.drill(into: $0) },
+                    onResize: { coordinator.resize(to: $0) }
+                )
+                Divider()
+                TreemapLegendView(categories: visibleCategories)
+            }
+        } else {
+            ContentUnavailableView(
+                "Nothing measured yet",
+                systemImage: "square.grid.3x3",
+                description: Text("Scan a folder or a volume and it will be drawn here.")
+            )
+        }
+    }
+
+    @ViewBuilder
+    private var totalsPane: some View {
         if let accounting = controller.accounting {
             VolumeAccountingView(accounting: accounting, formatter: formatter)
         } else if controller.accountingActivity.isVisible {
@@ -267,11 +326,17 @@ struct MainSplitView: View {
             .frame(maxWidth: .infinity, maxHeight: .infinity)
         } else {
             ContentUnavailableView(
-                "Treemap",
-                systemImage: "square.grid.3x3",
-                description: Text("The proportional view arrives with User Story 3.")
+                "No totals yet",
+                systemImage: "chart.pie",
+                description: Text("Finish a scan to see how it squares with the volume.")
             )
         }
+    }
+
+    /// Only what is actually drawn, so the legend never lists a colour that is not on screen.
+    private var visibleCategories: [FileCategory] {
+        let present = Set(coordinator.layout.nodes.filter { !$0.isRemainder }.map(\.category))
+        return FileCategory.allCases.filter(present.contains)
     }
 
     @ToolbarContentBuilder
