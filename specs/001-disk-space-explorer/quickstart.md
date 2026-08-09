@@ -12,12 +12,13 @@ built, section 1 should pass and later sections will not yet apply.
 
 - macOS 26.5 or later, matching the deployment target.
 - Xcode with the macOS SDK. Command Line Tools alone are not sufficient.
-- **Point the toolchain at Xcode before building.** On this machine `xcode-select -p` currently
-  returns `/Library/Developer/CommandLineTools`, which makes `xcodebuild` fail with a "requires
-  Xcode" error:
+- **Point the toolchain at Xcode before building.** If `xcode-select -p` answers
+  `/Library/Developer/CommandLineTools`, `xcodebuild` fails with a "requires Xcode" error that
+  says nothing about the cause:
 
 ```bash
-sudo xcode-select -s /Applications/Xcode.app
+xcode-select -p                                # expect a path inside Xcode.app
+sudo xcode-select -s /Applications/Xcode.app   # only if it is not
 xcodebuild -version
 ```
 
@@ -53,6 +54,18 @@ xcodebuild test -project Spacelyzer.xcodeproj -scheme Spacelyzer -destination 'p
 xcodebuild test -project Spacelyzer.xcodeproj -scheme Spacelyzer -destination 'platform=macOS' \
   -only-testing:SpacelyzerTests
 ```
+
+Anyone building this without the project's signing team appends the same three settings CI uses,
+which sign it to run on the machine that built it and nowhere else:
+
+```bash
+CODE_SIGN_IDENTITY=- CODE_SIGN_STYLE=Manual DEVELOPMENT_TEAM=
+```
+
+The same two invocations run on every push and pull request through
+[`.github/workflows/ci.yml`](../../.github/workflows/ci.yml), as separate jobs so that a flake in
+the interface tests reads as a flake in the interface tests. `main` takes nothing that has not
+passed both.
 
 Merge gate 1 in the constitution requires a clean build in both configurations with no new
 warnings, so check Release too before calling a change done:
@@ -95,14 +108,22 @@ deliberately rather than on every invocation.
 
 ---
 
-## Before implementation begins
+## The storage benchmark, since closed
 
-One gate item from [plan.md](./plan.md) must close first.
+This section once held the gate that had to clear before any implementation began: Principle V
+requires SwiftData unless a recorded measurement says otherwise, so the two candidates had to be
+measured before either was built on.
 
-**Run the storage benchmark.** Principle V requires SwiftData unless a recorded measurement says
-otherwise. Build the 500,000-node fixture, measure a SwiftData-backed store and the in-memory node
-store against SC-001 and SC-009, and write the numbers into research R5. Whichever wins, the
-decision is then evidence-backed rather than assumed.
+It was run, and it reversed the decision. Materialising one model object per file cost between 4.7
+and 15 times the price of reading the entire tree, which at 500,000 items would have spent the
+whole of SC-001's budget on the import alone. Scan results are now the value tree the engine
+already produces, and SwiftData holds only the durable records. Research
+[R5](./research.md#r5-where-scan-results-live) records the numbers and what they changed.
+
+What that run did not settle is whether the architecture it chose meets SC-001, SC-002, SC-005,
+and SC-009 at full scale — it was measured at 50,502 nodes, and those criteria are written at
+500,000 and 1,000,000. Scenarios 1, 3, and 5 below carry those figures, and they remain the open
+half of the question rather than a formality.
 
 ---
 
@@ -178,23 +199,38 @@ itself and offers a single clear action.
 
 ### 6. Inspect before acting (Story 6)
 
+The panel is closed until asked for, and closes again whenever an analysis starts, so open it from
+the Details button in the toolbar first. Deciding whether a large file matters means seeing it and
+its place in the scan at once, which is why it takes a column beside both views rather than
+covering either.
+
 Select a known image and a known document. Expect a preview inside the app within **1 second** for
 files up to 100 MB (SC-011), reveal to open the file browser with the item selected, and details to
-show path, size, kind, and all three dates. Select a file with no available preview and expect an
-explanation rather than a blank panel.
+show path, size, kind, and all three dates — created, modified, and last opened. Select a file with
+no available preview and expect an explanation rather than a blank panel.
+
+Click quickly through a dozen treemap rectangles in turn. Expect the facts to keep up with the
+clicking and the preview to fill in behind them: previews are commissioned only once a selection
+holds still, because each one is real work in another process and a selection passed through on
+the way somewhere else should not commission any.
 
 ### 7. Reclaim space, then undo (Story 7)
 
-Select throwaway fixture files and request removal. Expect the confirmation to name them and report
-the correct count and reclaimable total before anything is touched. Complete it, confirm the items
-are in the Trash and both views updated without a rescan, then undo and confirm they return to
-their original locations.
+Select a throwaway fixture folder and request removal. Expect the confirmation to name what will
+go and report the correct count and reclaimable total before anything is touched. Complete it,
+confirm the items are in the Trash and both views updated without a rescan, then undo from the
+summary and confirm they return to their original locations.
 
-Include a protected system path in a selection and confirm it is refused with an explanation while
-the remaining items still proceed. Remove a batch where one item is deleted externally first, and
-confirm the rest complete with an accurate summary. Choose permanent deletion and confirm the
-separate irreversibility warning appears and that undo afterwards reports `unrestorable` rather
-than claiming success.
+Selecting more than one item at a time is not yet possible: the removal machinery takes any number
+and a folder already stands for every file beneath it, but the selection itself still holds a
+single path. T111a covers the gap. Until it closes, the multi-item cases below are reached by
+selecting a folder whose contents include the item in question.
+
+Try to remove the analysed folder itself, or any protected system location, and confirm it is
+refused with an explanation while anything else in the same request still proceeds. Remove a
+folder where one item has been deleted externally first, and confirm the rest complete with an
+accurate summary. Choose permanent deletion and confirm the separate irreversibility warning
+appears and that undo afterwards reports it cannot be taken back rather than claiming success.
 
 Empty the Trash after a removal and confirm undo explains precisely why it cannot restore.
 
@@ -212,4 +248,9 @@ set at all. Over 100,000 files, detection completes within **5 minutes** with no
 
 Applies to every scenario. With the app running any operation, confirm there is no network
 activity for the lifetime of the process (SC-016), and confirm the app declares no network
-entitlement. Confirm captured logs redact file paths.
+entitlement.
+
+Nothing needs redacting from captured logs, because there are none: the app builds no logger and
+calls no logging function anywhere, so no path is ever written outside the window it is displayed
+in. Confirm that remains true rather than confirming the redaction — a `Logger` added later would
+be the thing to catch, and by then the redaction question is live again.

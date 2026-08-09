@@ -366,4 +366,4 @@ matters when previewing arbitrary content found on someone's disk.
 | R1 access model | Closed. Constitution v2.0.0 dropped the sandbox; build settings updated to match |
 | R4 snapshot sizing | Closed. FR-017 amended with a fallback to the residual when sizing fails |
 | R5 scan storage | Closed by measurement. Value tree for scan results, SwiftData for durable records; benchmark recorded above |
-| R8 Swift 6 mode | Open. Change `SWIFT_VERSION` from 5.0 in build settings during implementation |
+| R8 Swift 6 mode | Closed. `SWIFT_VERSION` is 6.0, and the isolation default noted above made `nonisolated` an explicit requirement rather than a formality |
