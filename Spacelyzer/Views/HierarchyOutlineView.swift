@@ -18,12 +18,29 @@ enum SortOrder: String, CaseIterable, Identifiable {
     }
 }
 
+/// One line of the outline, already positioned in the list.
+nonisolated struct OutlineRow: Identifiable, Sendable {
+    enum Content: Sendable {
+        case item(ScannedItem)
+        /// The children a folder is not showing, offered rather than hidden.
+        case more(count: Int, bytes: Int64)
+    }
+
+    let id: String
+    let depth: Int
+    let parentTotal: Int64
+    let content: Content
+    let isExpandable: Bool
+    let isExpanded: Bool
+}
+
 /// The expandable hierarchy, largest first by default because the point is finding what is big
 /// (FR-024).
 ///
-/// Rows use a recursive `DisclosureGroup` rather than `OutlineGroup`, which takes a key path and
-/// therefore cannot see the selected sort order — with it, the sort control would silently do
-/// nothing.
+/// The visible tree is flattened into one array of rows rather than built from nested disclosure
+/// groups. Nesting gave the list no linear order, so it could neither scroll to a row it had not
+/// already built nor tell how many rows it had — which is why revealing something the user had
+/// scrolled away from silently did nothing. Flat, every row has a position.
 struct HierarchyOutlineView: View {
     let root: ScannedItem
     let rootPath: String
@@ -31,41 +48,54 @@ struct HierarchyOutlineView: View {
     let sortOrder: SortOrder
     let selection: SelectionCoordinator
 
-    /// Which folders are open, held here rather than in each row.
-    ///
-    /// With the flag on the row, revealing something deep took one render pass per level: a row
-    /// could only react to the selection once its parent had opened and rendered it. The scroll
-    /// then raced that cascade and often arrived before the destination row existed, which is
-    /// what made following the treemap into the tree unreliable. Held together, every ancestor
-    /// opens in a single pass and the row is there to scroll to.
+    /// Which folders are open. Held here rather than per row, so revealing something deep opens
+    /// every ancestor in one pass instead of one level per render.
     @State private var expanded: Set<String> = []
-    /// Folders the user has asked to see in full, past the cap on how many children a folder
-    /// shows at once.
+    /// Folders the user has asked to see past the cap on how many children a folder shows.
     @State private var fullyShown: Set<String> = []
+    @State private var cache = RowCache()
 
-    var body: some View {
-        // Selection is the list's own, not a background drawn per row.
-        //
-        // A ScrollViewReader cannot reach a row the list has not built, and a lazy list discards
-        // rows once they are far enough off screen — so scrolling to something the user had
-        // scrolled away from did nothing at all, silently. Handing selection to the list lets
-        // AppKit scroll to it by row index, which does not care whether the row exists yet.
-        List(selection: selectionBinding) {
-            NodeRow(
-                item: root,
+    /// How many children a folder shows before offering the rest.
+    ///
+    /// Flattening still costs a row per visible child, so an open folder of fifty thousand would
+    /// make the list heavy for as long as it stayed open. Two hundred is far more than fits on
+    /// screen, and with the biggest first, nothing below it is what anyone is hunting for.
+    static let childLimit = 200
+
+    private var rows: [OutlineRow] {
+        cache.rows(
+            for: RowKey(
+                rootPath: rootPath,
+                total: root.cumulativeSize,
+                order: sortOrder,
+                expanded: expanded,
+                fullyShown: fullyShown
+            )
+        ) {
+            Self.flatten(
+                root,
                 path: rootPath,
-                parentTotal: root.cumulativeSize,
-                formatter: formatter,
-                sortOrder: sortOrder,
-                selection: selection,
-                expanded: $expanded,
-                fullyShown: $fullyShown
+                order: sortOrder,
+                expanded: expanded,
+                fullyShown: fullyShown
             )
         }
-        .listStyle(.inset)
-        .onAppear { expanded.insert(rootPath) }
-        .onChange(of: selection.revealToken) { _, _ in
-            reveal()
+    }
+
+    var body: some View {
+        ScrollViewReader { proxy in
+            List(selection: selectionBinding) {
+                ForEach(rows) { row in
+                    rowView(row)
+                        .tag(row.id)
+                        .id(row.id)
+                }
+            }
+            .listStyle(.inset)
+            .onAppear { expanded.insert(rootPath) }
+            .onChange(of: selection.revealToken) { _, _ in
+                reveal(proxy: proxy)
+            }
         }
     }
 
@@ -76,13 +106,13 @@ struct HierarchyOutlineView: View {
         )
     }
 
-    private func reveal() {
+    private func reveal(proxy: ScrollViewProxy) {
         guard let path = selection.selectedPath else { return }
+
         expanded.formUnion(Self.ancestors(of: path, under: rootPath))
 
-        // The target may sit past its folder's cap, and a row that is not built cannot be
-        // scrolled to. Only its own folder is opened in full; the rest of the way down stays
-        // capped.
+        // The target may sit past its folder's cap, and a row that is not in the list cannot be
+        // scrolled to. Only its own folder opens in full; the rest of the way down stays capped.
         if let parent = Self.parent(of: path, under: rootPath) {
             fullyShown.insert(parent)
         }
@@ -93,6 +123,127 @@ struct HierarchyOutlineView: View {
             fullyShown.insert(path)
         }
 
+        Task {
+            // Opening folders and laying the new rows out are separate passes, so the scroll
+            // waits a turn. Once the rows exist the list knows where the target sits, whether or
+            // not it has been drawn yet.
+            try? await Task.sleep(for: .milliseconds(50))
+            withAnimation(.easeOut(duration: 0.15)) {
+                proxy.scrollTo(path, anchor: .center)
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func rowView(_ row: OutlineRow) -> some View {
+        switch row.content {
+        case let .item(item):
+            ItemRow(
+                item: item,
+                row: row,
+                formatter: formatter,
+                onToggle: { toggle(row.id) }
+            )
+        case let .more(count, bytes):
+            MoreRow(
+                count: count,
+                bytes: bytes,
+                depth: row.depth,
+                formatter: formatter,
+                onShow: { fullyShown.insert(parentOfMoreRow(row.id)) }
+            )
+        }
+    }
+
+    private func toggle(_ path: String) {
+        if expanded.contains(path) { expanded.remove(path) } else { expanded.insert(path) }
+    }
+
+    /// A more-row's id is its folder's path with a marker, so it cannot collide with a real file.
+    private func parentOfMoreRow(_ id: String) -> String {
+        String(id.dropLast(Self.moreRowSuffix.count))
+    }
+
+    static let moreRowSuffix = "\u{0000}more"
+
+    /// Walks the open parts of the tree in display order.
+    ///
+    /// Only open folders are ordered, so a collapsed one costs nothing however large it is.
+    static func flatten(
+        _ item: ScannedItem,
+        path: String,
+        order: SortOrder,
+        expanded: Set<String>,
+        fullyShown: Set<String>,
+        depth: Int = 0,
+        parentTotal: Int64? = nil,
+        into rows: inout [OutlineRow]
+    ) {
+        let isOpen = expanded.contains(path)
+        rows.append(
+            OutlineRow(
+                id: path,
+                depth: depth,
+                parentTotal: parentTotal ?? item.cumulativeSize,
+                content: .item(item),
+                isExpandable: !item.children.isEmpty,
+                isExpanded: isOpen
+            )
+        )
+        guard isOpen, !item.children.isEmpty else { return }
+
+        let ordered = order.sort(item.children)
+        let shown = fullyShown.contains(path) ? ordered.count : min(childLimit, ordered.count)
+
+        for child in ordered.prefix(shown) {
+            flatten(
+                child,
+                path: path + "/" + child.name,
+                order: order,
+                expanded: expanded,
+                fullyShown: fullyShown,
+                depth: depth + 1,
+                parentTotal: item.cumulativeSize,
+                into: &rows
+            )
+        }
+
+        let hidden = ordered.dropFirst(shown)
+        if !hidden.isEmpty {
+            rows.append(
+                OutlineRow(
+                    id: path + moreRowSuffix,
+                    depth: depth + 1,
+                    parentTotal: item.cumulativeSize,
+                    content: .more(
+                        count: hidden.count,
+                        bytes: hidden.reduce(0) { $0 + $1.cumulativeSize }
+                    ),
+                    isExpandable: false,
+                    isExpanded: false
+                )
+            )
+        }
+    }
+
+    static func flatten(
+        _ item: ScannedItem,
+        path: String,
+        order: SortOrder,
+        expanded: Set<String>,
+        fullyShown: Set<String>
+    ) -> [OutlineRow] {
+        var rows: [OutlineRow] = []
+        rows.reserveCapacity(256)
+        flatten(
+            item,
+            path: path,
+            order: order,
+            expanded: expanded,
+            fullyShown: fullyShown,
+            into: &rows
+        )
+        return rows
     }
 
     /// Every folder between the root and this path, the root included.
@@ -116,98 +267,58 @@ struct HierarchyOutlineView: View {
     }
 }
 
-private struct NodeRow: View {
-    let item: ScannedItem
-    let path: String
-    let parentTotal: Int64
-    let formatter: SizeFormatter
-    let sortOrder: SortOrder
-    let selection: SelectionCoordinator
-    @Binding var expanded: Set<String>
-    @Binding var fullyShown: Set<String>
+/// What the flattened rows depend on. Anything else changing — the selection, most of all — must
+/// not cost a walk of the tree.
+private struct RowKey: Equatable {
+    let rootPath: String
+    let total: Int64
+    let order: SortOrder
+    let expanded: Set<String>
+    let fullyShown: Set<String>
+}
 
-    /// How many children a folder shows before offering the rest.
-    ///
-    /// The outline builds a row description for every child of an open folder, and that work
-    /// scales with the folder rather than with the window, so opening one with tens of thousands
-    /// of entries makes scrolling heavy for as long as it stays open. Two hundred is far more
-    /// than fits on screen and nothing below it is what anyone is hunting for, since the order
-    /// puts the biggest first.
-    private static let childLimit = 200
-    private var isExpanded: Binding<Bool> {
-        Binding(
-            get: { expanded.contains(path) },
-            set: { isOpen in
-                if isOpen { expanded.insert(path) } else { expanded.remove(path) }
-            }
-        )
+/// Memoises the flattened rows.
+///
+/// Selecting something re-renders the list, and rebuilding every row for a click that changed no
+/// structure would put the walk back on the hot path it was moved off.
+@MainActor
+private final class RowCache {
+    private var key: RowKey?
+    private var rows: [OutlineRow] = []
+
+    func rows(for key: RowKey, build: () -> [OutlineRow]) -> [OutlineRow] {
+        if self.key == key { return rows }
+        self.key = key
+        rows = build()
+        return rows
     }
+}
+
+private struct ItemRow: View {
+    let item: ScannedItem
+    let row: OutlineRow
+    let formatter: SizeFormatter
+    let onToggle: () -> Void
 
     var body: some View {
-        if item.children.isEmpty {
-            label
-        } else {
-            DisclosureGroup(isExpanded: isExpanded) {
-                // Only an open folder is ordered, and it is ordered here rather than filled in
-                // asynchronously. The async version meant a folder's rows did not exist for a
-                // moment after it opened, and revealing a selection would scroll to a row that
-                // was not there yet — or land on a layout that then shifted underneath it.
-                if expanded.contains(path) {
-                    let ordered = sortOrder.sort(item.children)
-                    let shown = fullyShown.contains(path)
-                        ? ordered[...]
-                        : ordered.prefix(Self.childLimit)
-
-                    // Siblings within a directory always have distinct names, so the name is a
-                    // valid identity here and costs nothing to derive.
-                    ForEach(shown, id: \.name) { child in
-                        NodeRow(
-                            item: child,
-                            path: path + "/" + child.name,
-                            parentTotal: item.cumulativeSize,
-                            formatter: formatter,
-                            sortOrder: sortOrder,
-                            selection: selection,
-                            expanded: $expanded,
-                            fullyShown: $fullyShown
-                        )
-                    }
-                    remainderRow(beyond: shown.count, of: ordered)
-                }
-            } label: {
-                label
-            }
-        }
-    }
-
-    /// Says how much is behind it rather than hiding it. The same promise the treemap's remainder
-    /// makes: nothing disappears from the totals without being named.
-    @ViewBuilder
-    private func remainderRow(beyond shownCount: Int, of ordered: [ScannedItem]) -> some View {
-        let hidden = ordered.dropFirst(shownCount)
-        if !hidden.isEmpty {
-            Button {
-                fullyShown.insert(path)
-            } label: {
-                HStack(spacing: 8) {
-                    Image(systemName: "ellipsis.circle")
-                        .foregroundStyle(.secondary)
-                        .frame(width: 16)
-                    Text("Show \(hidden.count) smaller items")
-                        .foregroundStyle(.secondary)
-                    Spacer(minLength: 12)
-                    Text(formatter.string(from: hidden.reduce(0) { $0 + $1.cumulativeSize }))
-                        .foregroundStyle(.secondary)
-                        .monospacedDigit()
-                }
-                .contentShape(.rect)
-            }
-            .buttonStyle(.plain)
-        }
-    }
-
-    private var label: some View {
         HStack(spacing: 8) {
+            // Indentation and the triangle are drawn rather than inherited from a disclosure
+            // group, which is the price of a flat list and a small one.
+            Color.clear.frame(width: CGFloat(row.depth) * 14, height: 1)
+
+            Group {
+                if row.isExpandable {
+                    Button(action: onToggle) {
+                        Image(systemName: "chevron.right")
+                            .font(.caption2)
+                            .rotationEffect(.degrees(row.isExpanded ? 90 : 0))
+                            .foregroundStyle(.secondary)
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
+            .frame(width: 12)
+
             Image(systemName: symbol)
                 .foregroundStyle(item.category.color)
                 .frame(width: 16)
@@ -225,8 +336,10 @@ private struct NodeRow: View {
             }
 
             ShareBar(
-                fraction: parentTotal > 0 ? Double(item.cumulativeSize) / Double(parentTotal) : 0,
-                text: formatter.share(of: item.cumulativeSize, in: parentTotal)
+                fraction: row.parentTotal > 0
+                    ? Double(item.cumulativeSize) / Double(row.parentTotal)
+                    : 0,
+                text: formatter.share(of: item.cumulativeSize, in: row.parentTotal)
             )
 
             Text(formatter.string(from: item.cumulativeSize))
@@ -241,13 +354,11 @@ private struct NodeRow: View {
         }
         .padding(.vertical, 1)
         .contentShape(.rect)
-        .tag(path)
         // Ignore rather than combine. Combining lets the children's own values through, and the
         // name is drawn truncated, so a leaf row announced itself as "Apple Color Emoji...." with
-        // no size at all. Ignoring them leaves only the description below, which is complete.
+        // no size at all.
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(accessibilityDescription)
-        .accessibilityAddTraits(selection.isSelected(path) ? [.isSelected] : [])
     }
 
     private var symbol: String {
@@ -262,7 +373,7 @@ private struct NodeRow: View {
 
     private var accessibilityDescription: String {
         var parts = [item.name, formatter.string(from: item.cumulativeSize)]
-        if let share = formatter.share(of: item.cumulativeSize, in: parentTotal) {
+        if let share = formatter.share(of: item.cumulativeSize, in: row.parentTotal) {
             parts.append("\(share) of parent")
         }
         parts.append(item.itemCount == 1 ? "1 item" : "\(item.itemCount) items")
@@ -270,6 +381,36 @@ private struct NodeRow: View {
             parts.append("counted elsewhere")
         }
         return parts.joined(separator: ", ")
+    }
+}
+
+/// Says how much is behind it rather than hiding it. The same promise the treemap's remainder
+/// makes: nothing disappears from the totals without being named.
+private struct MoreRow: View {
+    let count: Int
+    let bytes: Int64
+    let depth: Int
+    let formatter: SizeFormatter
+    let onShow: () -> Void
+
+    var body: some View {
+        Button(action: onShow) {
+            HStack(spacing: 8) {
+                Color.clear.frame(width: CGFloat(depth) * 14, height: 1)
+                Image(systemName: "ellipsis.circle")
+                    .foregroundStyle(.secondary)
+                    .frame(width: 16)
+                Text("Show \(count) smaller items")
+                    .foregroundStyle(.secondary)
+                Spacer(minLength: 12)
+                Text(formatter.string(from: bytes))
+                    .foregroundStyle(.secondary)
+                    .monospacedDigit()
+            }
+            .contentShape(.rect)
+        }
+        .buttonStyle(.plain)
+        .padding(.vertical, 1)
     }
 }
 
@@ -308,8 +449,6 @@ private struct ShareBar: View {
         .frame(width: Self.width, height: 14)
         .contentShape(.rect)
         .onHover { isHovering = $0 }
-        // No tooltip alongside the hover swap. It would install a second tracking mechanism on
-        // every row in the tree to say what the row already says when pointed at.
         .accessibilityHidden(true)
     }
 
