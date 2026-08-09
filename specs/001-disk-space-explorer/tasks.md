@@ -152,22 +152,23 @@ path and size.
 
 ### Tests for User Story 3
 
-- [ ] T051 [P] [US3] Test that rectangle areas are proportional to cumulative size share in `SpacelyzerTests/TreemapLayoutTests.swift` (FR-027)
-- [ ] T052 [P] [US3] Test that every child rectangle lies entirely within its parent's bounds in `SpacelyzerTests/TreemapLayoutTests.swift` (FR-028)
-- [ ] T053 [P] [US3] Test that identical input produces an identical layout so rectangles never reshuffle in `SpacelyzerTests/TreemapLayoutTests.swift` (research R6)
-- [ ] T054 [P] [US3] Test that undrawable siblings are combined into a remainder node rather than dropped in `SpacelyzerTests/TreemapLayoutTests.swift` (FR-032)
+- [X] T051 [P] [US3] Test that rectangle areas are proportional to cumulative size share in `SpacelyzerTests/TreemapLayoutTests.swift` (FR-027)
+- [X] T052 [P] [US3] Test that every child rectangle lies entirely within its parent's bounds in `SpacelyzerTests/TreemapLayoutTests.swift` (FR-028)
+- [X] T053 [P] [US3] Test that identical input produces an identical layout so rectangles never reshuffle in `SpacelyzerTests/TreemapLayoutTests.swift` (research R6)
+- [X] T054 [P] [US3] Test that undrawable siblings are combined into a remainder node rather than dropped in `SpacelyzerTests/TreemapLayoutTests.swift` (FR-032)
 
 ### Implementation for User Story 3
 
-- [ ] T055 [US3] Implement the squarified layout algorithm in `Spacelyzer/Treemap/SquarifiedLayout.swift` as a pure function, ordering siblings by descending size with a name tie-break
-- [ ] T056 [US3] Synthesise remainder nodes for siblings below the minimum drawable area in `Spacelyzer/Treemap/SquarifiedLayout.swift` (FR-032)
-- [ ] T057 [US3] Run layout off the main actor and deliver it as an immutable snapshot, superseding any in-flight layout on resize or drill, in `Spacelyzer/Treemap/LayoutCoordinator.swift` (Principle III)
-- [ ] T058 [US3] Render the treemap through a single SwiftUI `Canvas` drawing pre-computed rectangles in `Spacelyzer/Treemap/TreemapCanvas.swift`
-- [ ] T059 [US3] Draw a visible boundary around each item so nesting is readable in `Spacelyzer/Treemap/TreemapCanvas.swift` (FR-028)
-- [ ] T060 [US3] Apply category colors and build the legend in `Spacelyzer/Views/TreemapLegendView.swift` (FR-029)
-- [ ] T061 [US3] Build the spatial index for hit testing and hover in `Spacelyzer/Treemap/SpatialIndex.swift` (SC-005)
-- [ ] T062 [US3] Reveal path and size on hover without a click in `Spacelyzer/Treemap/TreemapCanvas.swift` (FR-030)
-- [ ] T063 [US3] Implement drill-in and navigate-out, keeping the previous layout visible while the new one computes, in `Spacelyzer/Treemap/LayoutCoordinator.swift` (FR-031)
+- [X] T055 [US3] Implement the squarified layout algorithm in `Spacelyzer/Treemap/SquarifiedLayout.swift` as a pure function, ordering siblings by descending size with a name tie-break — the contract's signature gained a `rootPath` parameter, since `ScannedItem` stores names only and FR-030 needs full paths on hover
+- [X] T056 [US3] Synthesise remainder nodes for siblings below the minimum drawable area in `Spacelyzer/Treemap/SquarifiedLayout.swift` (FR-032)
+- [X] T057 [US3] Run layout off the main actor and deliver it as an immutable snapshot, superseding any in-flight layout on resize or drill, in `Spacelyzer/Treemap/LayoutCoordinator.swift` (Principle III) — the snapshot carries the spatial index too, because indexing a large layout on the main actor would undo the point of computing it off one
+- [X] T058 [US3] Render the treemap through a single SwiftUI `Canvas` drawing pre-computed rectangles in `Spacelyzer/Treemap/TreemapCanvas.swift`
+- [X] T059 [US3] Draw a visible boundary around each item so nesting is readable in `Spacelyzer/Treemap/TreemapCanvas.swift` (FR-028)
+- [X] T060 [US3] Apply category colors and build the legend in `Spacelyzer/Views/TreemapLegendView.swift` (FR-029)
+- [X] T061 [US3] Build the spatial index for hit testing and hover in `Spacelyzer/Treemap/SpatialIndex.swift` (SC-005)
+- [X] T062 [US3] Reveal path and size on hover without a click in `Spacelyzer/Treemap/TreemapCanvas.swift` (FR-030)
+- [X] T063 [US3] Implement drill-in and navigate-out, keeping the previous layout visible while the new one computes, in `Spacelyzer/Treemap/LayoutCoordinator.swift` (FR-031)
+- [X] T063a [US3] Add the drill trail in `Spacelyzer/Views/TreemapLegendView.swift` so navigating out is one click from any depth (FR-031), and a Treemap/Totals selector in `Spacelyzer/Views/MainSplitView.swift` so the accounting panel from US2 keeps a home now that the trailing pane belongs to the treemap (FR-026)
 
 **Checkpoint**: The scan is legible at a glance
 
