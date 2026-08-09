@@ -39,6 +39,9 @@ struct HierarchyOutlineView: View {
     /// what made following the treemap into the tree unreliable. Held together, every ancestor
     /// opens in a single pass and the row is there to scroll to.
     @State private var expanded: Set<String> = []
+    /// Folders the user has asked to see in full, past the cap on how many children a folder
+    /// shows at once.
+    @State private var fullyShown: Set<String> = []
 
     var body: some View {
         ScrollViewReader { proxy in
@@ -50,7 +53,8 @@ struct HierarchyOutlineView: View {
                     formatter: formatter,
                     sortOrder: sortOrder,
                     selection: selection,
-                    expanded: $expanded
+                    expanded: $expanded,
+                    fullyShown: $fullyShown
                 )
             }
             .listStyle(.inset)
@@ -64,6 +68,13 @@ struct HierarchyOutlineView: View {
     private func reveal(proxy: ScrollViewProxy) {
         guard let path = selection.selectedPath else { return }
         expanded.formUnion(Self.ancestors(of: path, under: rootPath))
+
+        // The target may sit past its folder's cap, and a row that is not built cannot be
+        // scrolled to. Only its own folder is opened in full; the rest of the way down stays
+        // capped.
+        if let parent = Self.parent(of: path, under: rootPath) {
+            fullyShown.insert(parent)
+        }
 
         Task {
             // Opening the ancestors and laying the new rows out are still two separate passes,
@@ -90,6 +101,13 @@ struct HierarchyOutlineView: View {
         }
         return result
     }
+
+    /// The folder this path sits in, or nil when it is the root.
+    static func parent(of path: String, under rootPath: String) -> String? {
+        guard path.hasPrefix(rootPath + "/") else { return nil }
+        let components = path.dropFirst(rootPath.count).split(separator: "/").dropLast()
+        return components.reduce(rootPath) { $0 + "/" + $1 }
+    }
 }
 
 private struct NodeRow: View {
@@ -100,6 +118,16 @@ private struct NodeRow: View {
     let sortOrder: SortOrder
     let selection: SelectionCoordinator
     @Binding var expanded: Set<String>
+    @Binding var fullyShown: Set<String>
+
+    /// How many children a folder shows before offering the rest.
+    ///
+    /// The outline builds a row description for every child of an open folder, and that work
+    /// scales with the folder rather than with the window, so opening one with tens of thousands
+    /// of entries makes scrolling heavy for as long as it stays open. Two hundred is far more
+    /// than fits on screen and nothing below it is what anyone is hunting for, since the order
+    /// puts the biggest first.
+    private static let childLimit = 200
     /// Sorted once per ordering rather than once per render.
     ///
     /// Every row observes the shared selection, so a single click re-renders all of them. With
@@ -124,7 +152,7 @@ private struct NodeRow: View {
             DisclosureGroup(isExpanded: isExpanded) {
                 // Siblings within a directory always have distinct names, so the name is a valid
                 // identity here and costs nothing to derive.
-                ForEach(sortedChildren, id: \.name) { child in
+                ForEach(visibleChildren, id: \.name) { child in
                     NodeRow(
                         item: child,
                         path: path + "/" + child.name,
@@ -132,13 +160,47 @@ private struct NodeRow: View {
                         formatter: formatter,
                         sortOrder: sortOrder,
                         selection: selection,
-                        expanded: $expanded
+                        expanded: $expanded,
+                        fullyShown: $fullyShown
                     )
                 }
+                remainderRow
             } label: {
                 label
             }
             .task(id: sortOrder) { sortedChildren = sortOrder.sort(item.children) }
+        }
+    }
+
+    private var visibleChildren: ArraySlice<ScannedItem> {
+        fullyShown.contains(path)
+            ? sortedChildren[...]
+            : sortedChildren.prefix(Self.childLimit)
+    }
+
+    /// Says how much is behind it rather than hiding it. The same promise the treemap's remainder
+    /// makes: nothing disappears from the totals without being named.
+    @ViewBuilder
+    private var remainderRow: some View {
+        let hidden = sortedChildren.dropFirst(visibleChildren.count)
+        if !hidden.isEmpty {
+            Button {
+                fullyShown.insert(path)
+            } label: {
+                HStack(spacing: 8) {
+                    Image(systemName: "ellipsis.circle")
+                        .foregroundStyle(.secondary)
+                        .frame(width: 16)
+                    Text("Show \(hidden.count) smaller items")
+                        .foregroundStyle(.secondary)
+                    Spacer(minLength: 12)
+                    Text(formatter.string(from: hidden.reduce(0) { $0 + $1.cumulativeSize }))
+                        .foregroundStyle(.secondary)
+                        .monospacedDigit()
+                }
+                .contentShape(.rect)
+            }
+            .buttonStyle(.plain)
         }
     }
 

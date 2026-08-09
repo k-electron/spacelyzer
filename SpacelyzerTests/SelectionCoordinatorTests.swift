@@ -146,4 +146,17 @@ struct OutlineRevealTests {
     func rootSelectsItself() {
         #expect(HierarchyOutlineView.ancestors(of: "/scan", under: "/scan") == ["/scan"])
     }
+
+    @Test("The folder holding the selection is identified so it can be shown in full")
+    func parentIsIdentified() {
+        // A folder shows only its largest few hundred children, so revealing something further
+        // down the order means opening that one folder completely. Getting this wrong leaves the
+        // scroll with no row to find.
+        #expect(
+            HierarchyOutlineView.parent(of: "/scan/a/b/file.bin", under: "/scan") == "/scan/a/b"
+        )
+        #expect(HierarchyOutlineView.parent(of: "/scan/file.bin", under: "/scan") == "/scan")
+        #expect(HierarchyOutlineView.parent(of: "/scan", under: "/scan") == nil)
+        #expect(HierarchyOutlineView.parent(of: "/elsewhere/x", under: "/scan") == nil)
+    }
 }
