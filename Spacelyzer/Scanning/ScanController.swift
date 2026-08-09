@@ -14,6 +14,8 @@ final class ScanController {
     private(set) var totals = ScanTotals()
     private(set) var currentPath: String = ""
     private(set) var root: ScannedItem?
+    /// The location this result describes, kept so it can be rescanned or recorded as recent.
+    private(set) var rootURL: URL?
     private(set) var skipped: [(path: String, reason: SkipReason)] = []
 
     let activity = ActivityIndicator()
@@ -31,6 +33,7 @@ final class ScanController {
         totals = ScanTotals()
         skipped = []
         root = nil
+        rootURL = url
         activity.begin("Measuring \(url.lastPathComponent)")
 
         var options = ScanOptions()
@@ -57,6 +60,12 @@ final class ScanController {
             if self.state == .scanning { self.state = .idle }
             self.activity.end()
         }
+    }
+
+    /// Re-runs the current location, which is what makes a stale result actionable (FR-009).
+    func rescan(excluding exclusions: [URL] = []) {
+        guard let rootURL else { return }
+        scan(root: rootURL, excluding: exclusions)
     }
 
     func cancel() {
