@@ -10,12 +10,14 @@ import SwiftData
 /// as a value tree owned by the scan for the length of the session, which also keeps the promise
 /// that no index of the user's disk is ever written to disk.
 enum Storage {
-    /// Only what is actually in use. Models for removal history arrive with the story that needs
-    /// them, rather than sitting in the schema of a live on-disk store waiting to be migrated.
+    /// Only what is actually in use. Each model arrived with the story that needed it, rather than
+    /// sitting in the schema of a live on-disk store waiting to be migrated.
     static let durableSchema = Schema([
         RecentLocation.self,
         ExclusionRule.self,
         Preferences.self,
+        RemovalHistoryEntry.self,
+        RemovedItemRecord.self,
     ])
 
     static func makeContainer(inMemory: Bool = false) throws -> ModelContainer {
