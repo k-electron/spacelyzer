@@ -19,6 +19,20 @@ final class RecentLocation {
     }
 }
 
+/// A folder the user has asked to be left out of scans, kept across sessions (FR-011).
+@Model
+final class ExclusionRule {
+    /// Standardized on the way in, so a rule cannot be stored in a spelling that silently never
+    /// matches the paths traversal produces.
+    var path: String
+    var createdAt: Date
+
+    init(path: String, createdAt: Date = .now) {
+        self.path = path
+        self.createdAt = createdAt
+    }
+}
+
 nonisolated enum AppearancePreference: Int, Codable, CaseIterable, Sendable {
     case system
     case light
