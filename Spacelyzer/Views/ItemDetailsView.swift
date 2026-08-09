@@ -1,4 +1,23 @@
+import AppKit
 import SwiftUI
+
+/// The material a sidebar is drawn on, which SwiftUI exposes no name for.
+///
+/// Worth reaching to AppKit for. The details panel sits opposite the tree across the same window,
+/// and two flanking panes that are almost but not quite the same colour look like an oversight
+/// rather than a choice.
+struct SidebarMaterial: NSViewRepresentable {
+    func makeNSView(context: Context) -> NSVisualEffectView {
+        let view = NSVisualEffectView()
+        view.material = .sidebar
+        view.blendingMode = .behindWindow
+        // Matches the tree, which also goes flat when the window loses focus.
+        view.state = .followsWindowActiveState
+        return view
+    }
+
+    func updateNSView(_ view: NSVisualEffectView, context: Context) {}
+}
 
 /// The details pane, and the only place outside the two drawing views that watches the selection.
 ///
@@ -55,10 +74,12 @@ struct ItemDetailsView: View {
                 )
             }
         }
-        // Opaque, and clipped to itself. The panel's own translucency was sampling whatever sat
-        // behind and beneath it, which came out as a smear across the top of the window.
+        // Clipped, so nothing hosted here can draw outside the column, but left to the system to
+        // colour. Painting the whole panel opaque covered the smear that came of it overlapping
+        // the treemap, and once that overlap was fixed properly all the paint still did was carry
+        // the panel up into the toolbar as a block of its own. Only the preview sits on a surface
+        // of its own, because that is the part with a foreign view in it.
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .background(.windowBackground)
         .clipped()
     }
 
@@ -66,30 +87,35 @@ struct ItemDetailsView: View {
 
     @ViewBuilder
     private var previewArea: some View {
-        Group {
+        ZStack {
+            // Mounted once and handed each item in turn, including nothing at all. Taking it out
+            // of the view tree between selections built and closed a preview view on every click,
+            // and closing one tears down its connection to the process that renders previews —
+            // which is felt immediately when clicking around the treemap.
+            QuickLookPreview(url: readyURL)
+                .opacity(readyURL == nil ? 0 : 1)
+
             switch inspector.preview {
-            case .ready(let url):
-                // One view, handed each item in turn. Giving every item its own forced a preview
-                // view to be built and closed on each click, and closing one tears down its
-                // connection to the process that does the rendering.
-                QuickLookPreview(url: url)
             case .loading:
                 // Delay-then-show, so an item that resolves immediately never flashes a spinner
                 // on its way to being drawn (Principle III).
                 if inspector.activity.isVisible {
                     ProgressView()
-                } else {
-                    Color.clear
                 }
             case .unavailable(let reason):
                 unavailable(reason)
-            case nil:
-                Color.clear
+            case .ready, nil:
+                EmptyView()
             }
         }
         .frame(maxWidth: .infinity, minHeight: 200, maxHeight: 320)
         .background(Color(nsColor: .underPageBackgroundColor))
         .clipped()
+    }
+
+    private var readyURL: URL? {
+        guard case .ready(let url) = inspector.preview else { return nil }
+        return url
     }
 
     private func unavailable(_ reason: String) -> some View {

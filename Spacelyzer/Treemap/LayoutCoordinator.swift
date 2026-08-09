@@ -14,10 +14,29 @@ nonisolated struct LayoutSnapshot: Sendable {
     /// a scan of every rectangle on every draw.
     private let positionsByPath: [String: Int]
 
+    /// The largest drawn regions, ranked here rather than in the view.
+    ///
+    /// These are what the canvas exposes as accessibility elements. Deriving them meant sorting
+    /// every rectangle in the layout, and the view re-derived them whenever the selection moved —
+    /// twenty thousand comparisons on the click path, for an answer that only changes when the
+    /// layout does.
+    let largestNodes: [TreemapNode]
+
+    /// Enough to make the picture navigable without building an element per rectangle. The
+    /// outline is the complete accessible equivalent (research R7), so this exposes the ones
+    /// worth going to rather than all of them.
+    static let accessibleNodeLimit = 100
+
     init(layout: TreemapLayout, index: SpatialIndex) {
         self.layout = layout
         self.index = index
         id = UUID()
+
+        largestNodes = layout.nodes
+            .filter { !$0.isRemainder && $0.depth > 0 }
+            .sorted { $0.size > $1.size }
+            .prefix(Self.accessibleNodeLimit)
+            .map { $0 }
 
         // Remainders are skipped deliberately: one carries the path of the parent it stands for,
         // so indexing it would shadow the real rectangle of that folder.

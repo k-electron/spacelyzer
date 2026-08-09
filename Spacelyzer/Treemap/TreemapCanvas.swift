@@ -67,11 +67,6 @@ struct TreemapCanvas: View {
     /// layout was computed for.
     @State private var canvasSize: CGSize = .zero
 
-    /// Enough to make the picture navigable without building an element per rectangle. A layout
-    /// can hold tens of thousands of them, and the outline is the complete accessible equivalent
-    /// (research R7), so this exposes the ones worth going to rather than all of them.
-    private static let accessibleNodeLimit = 100
-
     var body: some View {
         // The picture hangs off something with no size of its own. It is drawn at the size it was
         // laid out for and stretched to whatever the pane is now, because a new size arrives every
@@ -184,7 +179,7 @@ struct TreemapCanvas: View {
         let stretch = stretch
 
         return ZStack(alignment: .topLeading) {
-            ForEach(largestNodes) { node in
+            ForEach(snapshot.largestNodes) { node in
                 Color.clear
                     .frame(
                         width: max(1, node.rect.width * stretch.width),
@@ -197,14 +192,6 @@ struct TreemapCanvas: View {
                     .accessibilityAction { selection.select(node.path, from: .treemap) }
             }
         }
-    }
-
-    private var largestNodes: [TreemapNode] {
-        snapshot.layout.nodes
-            .filter { !$0.isRemainder && $0.depth > 0 }
-            .sorted { $0.size > $1.size }
-            .prefix(Self.accessibleNodeLimit)
-            .map { $0 }
     }
 
     private func label(for node: TreemapNode) -> String {

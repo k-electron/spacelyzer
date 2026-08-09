@@ -46,6 +46,10 @@ struct MainSplitView: View {
     /// What the window opens at, and the figure the split below is a third of.
     static let defaultWindowSize = CGSize(width: 1280, height: 820)
 
+    /// Fixed, so the panel cannot be dragged. When it could be, dragging it widened the window
+    /// rather than narrowing the picture, and left a window that would not shrink again.
+    static let detailsPanelWidth: CGFloat = 320
+
     var body: some View {
         // Not HSplitView. That one ignores an ideal width outright — it divided the window in half
         // whatever the panes asked for — and it reports an intrinsic size that overrode the
@@ -65,29 +69,30 @@ struct MainSplitView: View {
             // of it; giving it an ideal turned that ideal into a floor, and the floor plus the
             // sidebar's became a window minimum nothing could shrink past. Widening the details
             // panel then had nowhere to take the room from and grew the window instead.
-            trailingPane
+            HStack(spacing: 0) {
+                trailingPane
+
+                // Inside the detail column rather than an inspector of its own. An inspector is
+                // a full-height column: it runs up behind the title bar, which reads as the panel
+                // having escaped the window's chrome. In here it starts where the content starts.
+                if showingDetails {
+                    Divider()
+                    DetailsPane(
+                        inspector: inspector,
+                        selection: selection,
+                        formatter: formatter,
+                        inspect: { inspectSelection($0) }
+                    )
+                    .frame(width: Self.detailsPanelWidth)
+                    .background(SidebarMaterial())
+                    .transition(.move(edge: .trailing))
+                }
+            }
         }
         // Balanced keeps the tree a column beside the picture. The automatic style would let it
         // slide over the top as an overlay, which is the arrangement this pane exists not to be.
         .navigationSplitViewStyle(.balanced)
         .frame(minHeight: 560)
-        // Beside the views rather than replacing one of them. Deciding what a four-gigabyte file
-        // is means looking at it and at where it sits in the scan at the same time.
-        .inspector(isPresented: $showingDetails) {
-            DetailsPane(
-                inspector: inspector,
-                selection: selection,
-                formatter: formatter,
-                inspect: { inspectSelection($0) }
-            )
-            // One fixed width, so the panel cannot be dragged. Given a range it could be, and
-            // dragging it widened the window instead of narrowing the picture — measured at every
-            // step, and it happened with an empty detail column and with nothing greedy in the
-            // panel, so it is how this inspector resizes rather than anything it was holding.
-            // A panel that cannot be dragged is a normal thing on this platform; one that drags
-            // the window out from under you is not.
-            .inspectorColumnWidth(320)
-        }
         .toolbar { toolbarContent }
         // Applied at the root so the whole window follows, including sheets and popovers.
         .preferredColorScheme(appearance.colorScheme)
@@ -569,7 +574,7 @@ struct MainSplitView: View {
         }
         ToolbarItem {
             Button {
-                showingDetails.toggle()
+                withAnimation(.easeInOut(duration: 0.22)) { showingDetails.toggle() }
             } label: {
                 Label("Details", systemImage: "sidebar.trailing")
             }

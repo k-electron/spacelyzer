@@ -7,7 +7,10 @@ import SwiftUI
 /// as a failed thumbnail instead of taking the app down with it — which matters when the whole
 /// point is looking at things nobody remembers creating.
 struct QuickLookPreview: NSViewRepresentable {
-    let url: URL
+    /// Nil while there is nothing to show. The view stays mounted through that rather than being
+    /// taken down and rebuilt, because building one opens a connection to the rendering process
+    /// and closing one tears it down.
+    let url: URL?
 
     /// Used only if it is asked for a size against an unbounded proposal, which the panel never
     /// does.
@@ -30,13 +33,13 @@ struct QuickLookPreview: NSViewRepresentable {
             view.setContentCompressionResistancePriority(.defaultLow, for: axis)
         }
 
-        view.previewItem = url as NSURL
+        view.previewItem = url as NSURL?
         return view
     }
 
     func updateNSView(_ view: QLPreviewView, context: Context) {
         guard (view.previewItem as? URL) != url else { return }
-        view.previewItem = url as NSURL
+        view.previewItem = url as NSURL?
     }
 
     /// Takes exactly what it is offered. Returning nil defers to the view's own idea of how big it
