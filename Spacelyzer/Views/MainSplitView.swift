@@ -1,15 +1,22 @@
+import SwiftData
 import SwiftUI
 
 /// Hierarchy on the leading side, treemap on the trailing side, with a divider the user can move
 /// (FR-026). The treemap itself arrives in User Story 3; until then the trailing side says so
 /// rather than presenting an unexplained empty pane.
 struct MainSplitView: View {
+    @Environment(\.modelContext) private var modelContext
     @State private var controller = ScanController()
     @State private var broker = AccessBroker()
     @State private var sortOrder: SortOrder = .size
     @State private var volumes: [VolumeDescriptor] = []
+    @State private var recents: [RecentLocation] = []
 
     private let formatter = SizeFormatter()
+
+    private var recentLocations: RecentLocations {
+        RecentLocations(context: modelContext)
+    }
 
     var body: some View {
         HSplitView {
@@ -20,7 +27,16 @@ struct MainSplitView: View {
         }
         .frame(minWidth: 900, minHeight: 560)
         .toolbar { toolbarContent }
-        .task { volumes = broker.mountedVolumes() }
+        .task {
+            volumes = broker.mountedVolumes()
+            recents = recentLocations.all()
+        }
+        .onChange(of: controller.state) { _, state in
+            // Recorded only once a scan has actually produced a total worth returning to.
+            guard state == .completed, let url = controller.rootURL else { return }
+            recentLocations.record(url: url, measuredTotal: controller.totals.measuredBytes)
+            recents = recentLocations.all()
+        }
     }
 
     @ViewBuilder
@@ -62,37 +78,98 @@ struct MainSplitView: View {
     }
 
     private var startPane: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            Text("Choose something to measure")
-                .font(.headline)
-
-            ForEach(volumes) { volume in
-                Button {
-                    controller.scan(root: volume.url)
-                } label: {
-                    HStack {
-                        Image(systemName: "internaldrive")
-                        VStack(alignment: .leading) {
-                            Text(volume.name)
-                            Text("\(formatter.string(from: volume.availableCapacity)) free of \(formatter.string(from: volume.totalCapacity))")
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
+        ScrollView {
+            VStack(alignment: .leading, spacing: 16) {
+                section("Choose something to measure") {
+                    ForEach(volumes) { volume in
+                        Button {
+                            controller.scan(root: volume.url)
+                        } label: {
+                            row(
+                                symbol: "internaldrive",
+                                title: volume.name,
+                                detail: "\(formatter.string(from: volume.availableCapacity)) free of \(formatter.string(from: volume.totalCapacity))"
+                            )
                         }
-                        Spacer()
+                        .buttonStyle(.plain)
+                    }
+
+                    Button("Choose Folder…") {
+                        if let url = broker.chooseFolder() {
+                            controller.scan(root: url)
+                        }
+                    }
+                    .padding(.top, 4)
+                }
+
+                if !recents.isEmpty {
+                    section("Recent") {
+                        ForEach(recents, id: \.persistentModelID) { entry in
+                            recentRow(entry)
+                        }
                     }
                 }
-                .buttonStyle(.plain)
             }
+            .padding()
+            .frame(maxWidth: .infinity, alignment: .leading)
+        }
+    }
 
-            Button("Choose Folder…") {
-                if let url = broker.chooseFolder() {
+    @ViewBuilder
+    private func recentRow(_ entry: RecentLocation) -> some View {
+        let available = recentLocations.isAvailable(entry)
+
+        HStack {
+            Button {
+                // Resolved through the bookmark first, so a folder that moved is still found.
+                if let url = recentLocations.resolve(entry) {
                     controller.scan(root: url)
                 }
+            } label: {
+                row(
+                    symbol: available ? "clock.arrow.circlepath" : "questionmark.folder",
+                    title: (entry.displayPath as NSString).lastPathComponent,
+                    detail: available
+                        ? "\(formatter.string(from: entry.lastMeasuredTotal)) · \(entry.lastScannedAt.formatted(.relative(presentation: .named)))"
+                        : "Unavailable"
+                )
+            }
+            .buttonStyle(.plain)
+            .disabled(!available)
+
+            Button {
+                recentLocations.forget(entry)
+                recents = recentLocations.all()
+            } label: {
+                Image(systemName: "xmark.circle.fill")
+                    .foregroundStyle(.tertiary)
+            }
+            .buttonStyle(.plain)
+            .help("Forget this location")
+        }
+    }
+
+    private func section(_ title: String, @ViewBuilder content: () -> some View) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text(title)
+                .font(.headline)
+            content()
+        }
+    }
+
+    private func row(symbol: String, title: String, detail: String) -> some View {
+        HStack {
+            Image(systemName: symbol)
+                .frame(width: 20)
+            VStack(alignment: .leading, spacing: 1) {
+                Text(title)
+                Text(detail)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
             }
             Spacer()
         }
-        .padding()
-        .frame(maxWidth: .infinity, alignment: .leading)
+        .contentShape(.rect)
     }
 
     private var trailingPane: some View {
@@ -109,6 +186,15 @@ struct MainSplitView: View {
             Picker("Sort", selection: $sortOrder) {
                 ForEach(SortOrder.allCases) { Text($0.rawValue).tag($0) }
             }
+        }
+        ToolbarItem {
+            Button {
+                controller.rescan()
+            } label: {
+                Label("Rescan", systemImage: "arrow.clockwise")
+            }
+            .disabled(controller.rootURL == nil || controller.isRunning)
+            .help("Measure this location again")
         }
         ToolbarItem {
             Button {
