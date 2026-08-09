@@ -143,27 +143,43 @@ protocol SelectionCoordinator: Observable {
 ## ItemInspector
 
 ```swift
-protocol ItemInspector {
-    func details(for item: ScannedItem, at url: URL) -> ItemDetails
-    func preview(for url: URL) async -> PreviewState
-    func reveal(_ url: URL)
-    func open(_ url: URL)
+@MainActor
+protocol ItemInspector: Observable {
+    var details: ItemDetails? { get }
+    /// Nil when nothing is selected, which is not the same as a selection with no preview.
+    var preview: PreviewState? { get }
+
+    func inspect(path: String, in root: ScannedItem, rootPath: String)
+    func clear()
+    func reveal()
+    func open()
 }
 
-enum PreviewState { case loading, ready(PreviewContent), unavailable(reason: String) }
+/// Both halves of one filesystem read, so details never wait on the preview and the two can never
+/// describe different items.
+func resolve(item: ScannedItem, at url: URL, path: String) -> (ItemDetails, PreviewState)
+
+enum PreviewState { case loading, ready(URL), unavailable(reason: String) }
 ```
 
 **Contract**
 
-- `details` resolves from the scanned item plus a single filesystem read for the item's logical
-  length, which is not stored per node. It must not wait on a preview (FR-048).
+- Details resolve from the scanned item plus a single filesystem read for the item's logical
+  length, which is not stored per node. They must not wait on a preview (FR-048).
 - Both the occupied and logical sizes are shown whenever they differ, so a sparse or compressed
   file reads as explicable rather than as a bug in the scanner.
-- `preview` is asynchronous and passes through `loading` before reaching a terminal state. SC-011
+- The inspector takes the selected path, not an item. Both views already agree on a path, and
+  descending the measured tree from it costs a walk rather than a second look at the disk.
+- Resolution is asynchronous and passes through `loading` before reaching a terminal state. SC-011
   allows up to a second for a 100 MB file, so a preview that has not arrived promptly shows that it
   is working rather than leaving a blank panel indistinguishable from a file with no preview at
   all. A preview that resolves quickly goes straight to its result without flashing a placeholder.
-- `unavailable` is a first-class outcome carrying a reason, not an error (FR-050).
+- `unavailable` is a first-class outcome carrying a reason, not an error (FR-050). Whether Quick
+  Look would produce something worth seeing is decided before it is asked, because it answers
+  almost anything with a generic icon, and an icon of a folder is not a preview. Folders, empty
+  files, symbolic links, unreadable items, and items that have since moved are all refused with a
+  reason. Application bundles are not: Quick Look has something real to say about one.
 - Changing the selection while a preview is loading supersedes it; a late preview for a
   deselected item is discarded rather than displayed against the wrong file.
-- Inspection never alters the item's contents or location (FR-049).
+- Inspection never alters the item's contents or location (FR-049). Reveal and open hand the item
+  to another process without touching it.

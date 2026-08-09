@@ -168,8 +168,13 @@ is what makes a permanent deletion honestly reportable as unrestorable rather th
 
 ### Preferences
 
-`sizeUnitConvention` of `decimal` or `binary` (FR-020, FR-021) and
-`duplicateMinimumFileSize`, the adjustable threshold below which duplicate detection skips files.
+`sizeUnitConvention` of `decimal` or `binary` (FR-020, FR-021), `appearance` of `system`, `light`,
+or `dark`, `showsDetails` for whether the details panel is open, and `duplicateMinimumFileSize`,
+the adjustable threshold below which duplicate detection skips files.
+
+There is exactly one record, created on first read. Everything here is a statement about how
+someone wants to work rather than a fact about their disk, which is why it survives relaunch while
+no scan does.
 
 ---
 

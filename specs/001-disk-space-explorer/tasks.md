@@ -240,17 +240,18 @@ app, that reveal opens the right folder, and that the reported path, sizes, and 
 
 ### Tests for User Story 6
 
-- [ ] T085 [P] [US6] Test that details report the correct path, allocated size, logical size, kind, and all three dates in `SpacelyzerTests/ItemInspectorTests.swift` (FR-048)
-- [ ] T086 [P] [US6] Test that a file with no available preview yields an explained unavailable state rather than an error in `SpacelyzerTests/ItemInspectorTests.swift` (FR-050)
-- [ ] T087 [P] [US6] Test that inspection leaves the item's contents and location unchanged in `SpacelyzerTests/ItemInspectorTests.swift` (FR-049)
+- [X] T085 [P] [US6] Test that details report the correct path, allocated size, logical size, kind, and all three dates in `SpacelyzerTests/ItemInspectorTests.swift` (FR-048) — plus a folder case, where the occupied figure covers the subtree and there is no logical length to set against it
+- [X] T086 [P] [US6] Test that a file with no available preview yields an explained unavailable state rather than an error in `SpacelyzerTests/ItemInspectorTests.swift` (FR-050) — folders, empty files, symlinks, missing and unreadable items, with application bundles pinned as previewable
+- [X] T087 [P] [US6] Test that inspection leaves the item's contents and location unchanged in `SpacelyzerTests/ItemInspectorTests.swift` (FR-049)
 
 ### Implementation for User Story 6
 
-- [ ] T088 [US6] Implement `ItemInspector` details, reading logical length on demand for the selected item only, in `Spacelyzer/Views/ItemInspector.swift` (FR-048)
-- [ ] T089 [US6] Bridge `QLPreviewView` into SwiftUI in `Spacelyzer/Views/QuickLookPreview.swift` (research R11)
-- [ ] T090 [US6] Add the loading state and discard previews for a deselected item in `Spacelyzer/Views/ItemInspector.swift` (FR-045, Principle III)
-- [ ] T091 [US6] Implement reveal in Finder and open in default application in `Spacelyzer/Views/ItemInspector.swift` (FR-046, FR-047)
-- [ ] T092 [US6] Build the details panel showing both size figures side by side when they differ in `Spacelyzer/Views/ItemDetailsView.swift` (FR-048)
+- [X] T088 [US6] Implement `ItemInspector` details, reading logical length on demand for the selected item only, in `Spacelyzer/Views/ItemInspector.swift` (FR-048) — one read answers both the details and whether there is a preview, so the two cannot describe different items
+- [X] T089 [US6] Bridge `QLPreviewView` into SwiftUI in `Spacelyzer/Views/QuickLookPreview.swift` (research R11)
+- [X] T090 [US6] Add the loading state and discard previews for a deselected item in `Spacelyzer/Views/ItemInspector.swift` (FR-045, Principle III)
+- [X] T091 [US6] Implement reveal in Finder and open in default application in `Spacelyzer/Views/ItemInspector.swift` (FR-046, FR-047)
+- [X] T092 [US6] Build the details panel showing both size figures side by side when they differ in `Spacelyzer/Views/ItemDetailsView.swift` (FR-048)
+- [X] T092a [US6] Present the panel as an inspector column beside both views, remembered in `Preferences.showsDetails`, with a UI test in `SpacelyzerUITests/SpacelyzerUITests.swift` — deciding what a large file is means seeing it and its place in the scan at once, so it could not displace either view
 
 **Checkpoint**: Nothing gets deleted sight-unseen
 

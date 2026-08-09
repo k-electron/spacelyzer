@@ -20,6 +20,8 @@ struct MainSplitView: View {
     @State private var coloring: TreemapColoring = .folder
     @State private var selection = SelectionCoordinator()
     @State private var filters = FilterCoordinator()
+    @State private var inspector = ItemInspector()
+    @State private var showingDetails = true
     /// The list in force when the displayed result was produced, so a later change to it can be
     /// recognised as making that result stale rather than merely old (FR-013).
     @State private var scannedWithExclusions: [URL] = []
@@ -47,6 +49,12 @@ struct MainSplitView: View {
                 .frame(minWidth: 320, maxWidth: .infinity, maxHeight: .infinity)
         }
         .frame(minWidth: 900, minHeight: 560)
+        // Beside the views rather than replacing one of them. Deciding what a four-gigabyte file
+        // is means looking at it and at where it sits in the scan at the same time.
+        .inspector(isPresented: detailsBinding) {
+            ItemDetailsView(inspector: inspector, formatter: formatter)
+                .inspectorColumnWidth(min: 260, ideal: 320, max: 480)
+        }
         .toolbar { toolbarContent }
         // Applied at the root so the whole window follows, including sheets and popovers.
         .preferredColorScheme(appearance.colorScheme)
@@ -60,7 +68,9 @@ struct MainSplitView: View {
         .task {
             volumes = broker.mountedVolumes()
             recents = recentLocations.all()
-            appearance = Preferences.current(in: modelContext).appearance
+            let preferences = Preferences.current(in: modelContext)
+            appearance = preferences.appearance
+            showingDetails = preferences.showsDetails
         }
         // A grant made in System Settings only becomes visible on the way back into the app.
         .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
@@ -69,6 +79,10 @@ struct MainSplitView: View {
         // One result, handed to both views, so they cannot describe different subsets (FR-042).
         .onChange(of: filters.result) { _, result in
             coordinator.apply(retained: result?.retained)
+        }
+        // Whatever is selected is what the panel describes, whichever view the click came from.
+        .onChange(of: selection.selectedPath) { _, path in
+            inspectSelection(path)
         }
         .onChange(of: controller.state) { _, state in
             guard let url = controller.rootURL else { return }
@@ -114,11 +128,20 @@ struct MainSplitView: View {
         selection.resolve(withinRoot: rootPath)
     }
 
+    private func inspectSelection(_ path: String?) {
+        guard let path, let root = controller.root, let url = controller.rootURL else {
+            inspector.clear()
+            return
+        }
+        inspector.inspect(path: path, in: root, rootPath: url.standardizedFileURL.path)
+    }
+
     private func startScan(_ url: URL) {
         pendingScan = nil
         broker.acknowledgeGrant()
         coordinator.clear()
         selection.clear()
+        inspector.clear()
         filters.clearScan()
         scannedWithExclusions = exclusionRules.excludedURLs()
         controller.scan(root: url, excluding: scannedWithExclusions)
@@ -345,6 +368,17 @@ struct MainSplitView: View {
         .contentShape(.rect)
     }
 
+    private var detailsBinding: Binding<Bool> {
+        Binding(
+            get: { showingDetails },
+            set: { newValue in
+                showingDetails = newValue
+                Preferences.current(in: modelContext).showsDetails = newValue
+                try? modelContext.save()
+            }
+        )
+    }
+
     private var appearanceBinding: Binding<AppearancePreference> {
         Binding(
             get: { appearance },
@@ -502,6 +536,15 @@ struct MainSplitView: View {
                 Label("Exclusions", systemImage: "minus.circle")
             }
             .help("Choose folders to leave out of scans")
+        }
+        ToolbarItem {
+            Button {
+                detailsBinding.wrappedValue.toggle()
+            } label: {
+                Label("Details", systemImage: "sidebar.trailing")
+            }
+            .keyboardShortcut("i", modifiers: [.command, .option])
+            .help(showingDetails ? "Hide the details panel" : "Show the details panel")
         }
         // Choosing somewhere to scan and rescanning where you are both live in the header above
         // the tree now. They act on what the left pane is showing, so putting them across the
