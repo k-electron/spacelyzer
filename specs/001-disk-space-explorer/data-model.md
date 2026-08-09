@@ -169,12 +169,13 @@ is what makes a permanent deletion honestly reportable as unrestorable rather th
 ### Preferences
 
 `sizeUnitConvention` of `decimal` or `binary` (FR-020, FR-021), `appearance` of `system`, `light`,
-or `dark`, `showsDetails` for whether the details panel is open, and `duplicateMinimumFileSize`,
-the adjustable threshold below which duplicate detection skips files.
+or `dark`, and `duplicateMinimumFileSize`, the adjustable threshold below which duplicate detection
+skips files.
 
-There is exactly one record, created on first read. Everything here is a statement about how
-someone wants to work rather than a fact about their disk, which is why it survives relaunch while
-no scan does.
+There is exactly one record, created on first read. Everything here is a standing statement about
+how someone wants to work rather than a fact about their disk, which is why it survives relaunch
+while no scan does. Whether the details panel is open is deliberately not here: it closes when an
+analysis starts, so a remembered answer would never be the one in force.
 
 ---
 

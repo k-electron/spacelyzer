@@ -65,13 +65,10 @@ final class SpacelyzerUITests: XCTestCase {
         )
     }
 
-    /// The details panel sits beside the two views rather than replacing either, and says what it
-    /// is waiting for instead of sitting blank.
-    ///
-    /// Whether it starts open is a remembered preference, so the test establishes the state it
-    /// needs rather than assuming one, and leaves it open again for whoever runs next.
+    /// The details panel is closed until it is asked for, and sits beside the two views rather
+    /// than replacing either when it opens.
     @MainActor
-    func testDetailsPanelOpensAndExplainsItself() throws {
+    func testDetailsPanelStartsClosedAndOpensOnRequest() throws {
         let app = launchApp()
 
         let toggle = app.buttons["Details"]
@@ -80,12 +77,14 @@ final class SpacelyzerUITests: XCTestCase {
         )
 
         let empty = app.staticTexts["Nothing selected"]
-        if !empty.waitForExistence(timeout: 3) {
-            toggle.click()
-        }
+        XCTAssertFalse(
+            empty.exists, "The details panel should not be taking up room before it is asked for"
+        )
+
+        toggle.click()
         XCTAssertTrue(
             empty.waitForExistence(timeout: 5),
-            "The details panel should say it is waiting for a selection"
+            "Opening the details panel should say it is waiting for a selection"
         )
 
         toggle.click()
@@ -93,8 +92,6 @@ final class SpacelyzerUITests: XCTestCase {
             empty.waitForNonExistence(timeout: 5),
             "The details panel should close when it is toggled away"
         )
-
-        toggle.click()
     }
 
     /// Sorting is a real control, not decoration. This guards the defect where the picker was

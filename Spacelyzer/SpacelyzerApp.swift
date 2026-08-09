@@ -23,5 +23,8 @@ struct SpacelyzerApp: App {
             ContentView()
         }
         .modelContainer(container)
+        // Fixed rather than derived from the content's ideal size, because the split inside starts
+        // at a third of it and a third of an unknown number is not a layout anyone chose.
+        .defaultSize(MainSplitView.defaultWindowSize)
     }
 }

@@ -34,15 +34,6 @@ struct PreferencesTests {
         #expect(Preferences.current(in: context).appearance == .system)
     }
 
-    @Test("The details panel starts open, and closing it is remembered")
-    func detailsPanelPreferenceSticks() throws {
-        let context = try makeContext()
-
-        #expect(Preferences.current(in: context).showsDetails)
-        Preferences.current(in: context).showsDetails = false
-        #expect(!Preferences.current(in: context).showsDetails)
-    }
-
     @Test("Only the system setting defers to the system; light and dark pin the scheme")
     func colorSchemeMapping() {
         #expect(AppearancePreference.system.colorScheme == nil)

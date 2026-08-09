@@ -63,6 +63,9 @@ struct TreemapCanvas: View {
     let onResize: (CGRect) -> Void
 
     @State private var hovered: TreemapNode?
+    /// What the canvas has to fill right now, which during a resize is not what the current
+    /// layout was computed for.
+    @State private var canvasSize: CGSize = .zero
 
     /// Enough to make the picture navigable without building an element per rectangle. A layout
     /// can hold tens of thousands of them, and the outline is the complete accessible equivalent
@@ -70,22 +73,35 @@ struct TreemapCanvas: View {
     private static let accessibleNodeLimit = 100
 
     var body: some View {
-        ZStack {
-            // Two layers on purpose. The rectangles depend only on the layout and the colouring,
-            // so pointing at something redraws the thin overlay instead of all twenty thousand
-            // of them. Drawing everything on every pointer move saturated the main thread on
-            // large folders, and clicks arriving behind that backlog were what felt flaky.
-            TreemapBaseLayer(snapshot: snapshot, coloring: coloring).equatable()
+        ZStack(alignment: .topLeading) {
+            ZStack {
+                // Two layers on purpose. The rectangles depend only on the layout and the
+                // colouring, so pointing at something redraws the thin overlay instead of all
+                // twenty thousand of them. Drawing everything on every pointer move saturated the
+                // main thread on large folders, and clicks arriving behind that backlog were what
+                // felt flaky.
+                TreemapBaseLayer(snapshot: snapshot, coloring: coloring).equatable()
 
-            TreemapOverlayLayer(hovered: hovered, selected: selectedNode)
-                .allowsHitTesting(false)
+                TreemapOverlayLayer(hovered: hovered, selected: selectedNode)
+                    .allowsHitTesting(false)
+            }
+            // Kept at the size it was laid out for and stretched to whatever the pane is now.
+            // A new size arrives every frame while the details panel slides or a window edge is
+            // dragged, and no layout can keep up with that, so the picture already drawn is
+            // stretched to fit and replaced once the size holds still. A transform is free where
+            // squarifying the tree twelve times over is not.
+            .frame(width: drawnSize.width, height: drawnSize.height)
+            .scaleEffect(x: stretch.width, y: stretch.height, anchor: .topLeading)
         }
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        .clipped()
         // Not a GeometryReader reporting through onChange. That pattern misses changes when the
         // container resizes without the child's identity changing, which is exactly what dragging
         // a window edge or a split divider does, and it left the treemap drawn at its first size.
         .onGeometryChange(for: CGSize.self) { proxy in
             proxy.size
         } action: { size in
+            canvasSize = size
             onResize(CGRect(origin: .zero, size: size))
         }
         .onContinuousHover(coordinateSpace: .local) { phase in
@@ -93,13 +109,13 @@ struct TreemapCanvas: View {
             case let .active(point):
                 // Straight to the spatial index, never a walk of the tree, so this keeps up
                 // with the pointer no matter how large the scan (SC-005).
-                hovered = snapshot.index.node(at: point)
+                hovered = node(at: point)
             case .ended:
                 hovered = nil
             }
         }
         .onTapGesture(count: 2) { location in
-            if let node = snapshot.index.node(at: location) { onDrill(node) }
+            if let node = node(at: location) { onDrill(node) }
         }
         // Selection deliberately does not go through a second tap gesture. Two tap recognisers on
         // one view make every single click wait out the double-click interval to find out which
@@ -112,11 +128,11 @@ struct TreemapCanvas: View {
                     // A remainder carries its parent's path, so clicking one selects the folder
                     // it stands for. It also asks the outline to open that folder in full, since
                     // seeing the items it stands for is the reason to click it.
-                    let node = snapshot.index.node(at: value.location)
+                    let hit = node(at: value.location)
                     selection.select(
-                        node?.path,
+                        hit?.path,
                         from: .treemap,
-                        revealingContents: node?.isRemainder ?? false
+                        revealingContents: hit?.isRemainder ?? false
                     )
                 }
         )
@@ -129,15 +145,47 @@ struct TreemapCanvas: View {
         .accessibilityChildren { accessibleRegions }
     }
 
+    /// The size the current layout was computed for, which is what the canvas draws at before
+    /// being stretched. An empty layout has no size of its own, so it takes the pane's.
+    private var drawnSize: CGSize {
+        let laid = snapshot.layout.bounds.size
+        return laid.width > 0 && laid.height > 0 ? laid : canvasSize
+    }
+
+    /// How far the drawn picture is from the space it now has to fill. One while the layout
+    /// matches the pane, which is every moment except a resize in progress.
+    private var stretch: CGSize {
+        let laid = snapshot.layout.bounds.size
+        guard laid.width > 0, laid.height > 0, canvasSize.width > 0, canvasSize.height > 0 else {
+            return CGSize(width: 1, height: 1)
+        }
+        return CGSize(width: canvasSize.width / laid.width, height: canvasSize.height / laid.height)
+    }
+
+    /// Pointer positions arrive in the pane's coordinates and the index holds the layout's, so a
+    /// stretched picture has to be asked about the point it was stretched from.
+    private func node(at point: CGPoint) -> TreemapNode? {
+        let stretch = stretch
+        guard stretch.width > 0, stretch.height > 0 else { return nil }
+        return snapshot.index.node(
+            at: CGPoint(x: point.x / stretch.width, y: point.y / stretch.height)
+        )
+    }
+
     /// The largest drawn regions, exposed so the picture can be navigated rather than being one
     /// opaque element. Focusing one selects it through the same coordinator the pointer uses, so
     /// VoiceOver and the mouse cannot end up disagreeing (research R7, Principle V).
     private var accessibleRegions: some View {
-        ZStack(alignment: .topLeading) {
+        let stretch = stretch
+
+        return ZStack(alignment: .topLeading) {
             ForEach(largestNodes) { node in
                 Color.clear
-                    .frame(width: max(1, node.rect.width), height: max(1, node.rect.height))
-                    .offset(x: node.rect.minX, y: node.rect.minY)
+                    .frame(
+                        width: max(1, node.rect.width * stretch.width),
+                        height: max(1, node.rect.height * stretch.height)
+                    )
+                    .offset(x: node.rect.minX * stretch.width, y: node.rect.minY * stretch.height)
                     .accessibilityElement()
                     .accessibilityLabel(label(for: node))
                     .accessibilityAddTraits(.isButton)

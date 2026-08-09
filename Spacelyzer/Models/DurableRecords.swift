@@ -68,18 +68,10 @@ nonisolated enum AppearancePreference: Int, Codable, CaseIterable, Sendable {
 final class Preferences {
     var sizeUnitConvention: SizeUnitConvention
     var appearance: AppearancePreference
-    /// Whether the details panel is open. Remembered because closing it is a statement about how
-    /// someone wants to work, not a decision worth making again on every launch.
-    var showsDetails: Bool = true
 
-    init(
-        sizeUnitConvention: SizeUnitConvention = .decimal,
-        appearance: AppearancePreference = .system,
-        showsDetails: Bool = true
-    ) {
+    init(sizeUnitConvention: SizeUnitConvention = .decimal, appearance: AppearancePreference = .system) {
         self.sizeUnitConvention = sizeUnitConvention
         self.appearance = appearance
-        self.showsDetails = showsDetails
     }
 
     /// There is exactly one preferences record. Fetching creates it on first launch rather than

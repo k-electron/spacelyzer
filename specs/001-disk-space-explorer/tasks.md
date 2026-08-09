@@ -251,7 +251,9 @@ app, that reveal opens the right folder, and that the reported path, sizes, and 
 - [X] T090 [US6] Add the loading state and discard previews for a deselected item in `Spacelyzer/Views/ItemInspector.swift` (FR-045, Principle III)
 - [X] T091 [US6] Implement reveal in Finder and open in default application in `Spacelyzer/Views/ItemInspector.swift` (FR-046, FR-047)
 - [X] T092 [US6] Build the details panel showing both size figures side by side when they differ in `Spacelyzer/Views/ItemDetailsView.swift` (FR-048)
-- [X] T092a [US6] Present the panel as an inspector column beside both views, remembered in `Preferences.showsDetails`, with a UI test in `SpacelyzerUITests/SpacelyzerUITests.swift` — deciding what a large file is means seeing it and its place in the scan at once, so it could not displace either view
+- [X] T092a [US6] Present the panel as an inspector column beside both views, closed until asked for and closed again when an analysis starts, with a UI test in `SpacelyzerUITests/SpacelyzerUITests.swift` — deciding what a large file is means seeing it and its place in the scan at once, so it could not displace either view
+- [X] T092b [US6] Keep the selection watched inside the details pane rather than in `MainSplitView`, walk the tree off the main actor, and let the preview settle before Quick Look is asked — reading the selection at the top of the window made every click rebuild both panes, the legend, and an exclusion fetch
+- [X] T092c [US6] Coalesce treemap resizes and stretch the drawn layout until the new one lands in `Spacelyzer/Treemap/LayoutCoordinator.swift` and `TreemapCanvas.swift` — squarifying has no cancellation point, so a moving pane had a dozen full layouts running at once
 
 **Checkpoint**: Nothing gets deleted sight-unseen
 

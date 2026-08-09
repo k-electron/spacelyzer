@@ -21,7 +21,9 @@ struct MainSplitView: View {
     @State private var selection = SelectionCoordinator()
     @State private var filters = FilterCoordinator()
     @State private var inspector = ItemInspector()
-    @State private var showingDetails = true
+    /// Closed until asked for. It answers a question about one item, which is not the question
+    /// anyone opens the app with, and it costs a Quick Look render for whatever is selected.
+    @State private var showingDetails = false
     /// The list in force when the displayed result was produced, so a later change to it can be
     /// recognised as making that result stale rather than merely old (FR-013).
     @State private var scannedWithExclusions: [URL] = []
@@ -41,17 +43,26 @@ struct MainSplitView: View {
             && exclusionRules.resultIsStale(scannedWith: scannedWithExclusions)
     }
 
+    /// What the window opens at, and the figure the split below is a third of.
+    static let defaultWindowSize = CGSize(width: 1280, height: 820)
+
     var body: some View {
         HSplitView {
+            // A third of the window to start with. The tree is names and numbers and stops being
+            // more readable past a point, whereas the picture keeps using whatever it is given.
             leadingPane
-                .frame(minWidth: 320, idealWidth: 420, maxHeight: .infinity)
+                .frame(
+                    minWidth: 320,
+                    idealWidth: Self.defaultWindowSize.width / 3,
+                    maxHeight: .infinity
+                )
             trailingPane
                 .frame(minWidth: 320, maxWidth: .infinity, maxHeight: .infinity)
         }
         .frame(minWidth: 900, minHeight: 560)
         // Beside the views rather than replacing one of them. Deciding what a four-gigabyte file
         // is means looking at it and at where it sits in the scan at the same time.
-        .inspector(isPresented: detailsBinding) {
+        .inspector(isPresented: $showingDetails) {
             DetailsPane(
                 inspector: inspector,
                 selection: selection,
@@ -73,9 +84,7 @@ struct MainSplitView: View {
         .task {
             volumes = broker.mountedVolumes()
             recents = recentLocations.all()
-            let preferences = Preferences.current(in: modelContext)
-            appearance = preferences.appearance
-            showingDetails = preferences.showsDetails
+            appearance = Preferences.current(in: modelContext).appearance
         }
         // A grant made in System Settings only becomes visible on the way back into the app.
         .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
@@ -153,6 +162,9 @@ struct MainSplitView: View {
         broker.acknowledgeGrant()
         coordinator.clear()
         selection.clear()
+        // Whatever was being looked at belongs to the analysis being replaced, and the panel is
+        // the wrong thing to be watching while a new one runs.
+        showingDetails = false
         inspector.clear()
         filters.clearScan()
         scannedWithExclusions = exclusionRules.excludedURLs()
@@ -380,17 +392,6 @@ struct MainSplitView: View {
         .contentShape(.rect)
     }
 
-    private var detailsBinding: Binding<Bool> {
-        Binding(
-            get: { showingDetails },
-            set: { newValue in
-                showingDetails = newValue
-                Preferences.current(in: modelContext).showsDetails = newValue
-                try? modelContext.save()
-            }
-        )
-    }
-
     private var appearanceBinding: Binding<AppearancePreference> {
         Binding(
             get: { appearance },
@@ -551,7 +552,7 @@ struct MainSplitView: View {
         }
         ToolbarItem {
             Button {
-                detailsBinding.wrappedValue.toggle()
+                showingDetails.toggle()
             } label: {
                 Label("Details", systemImage: "sidebar.trailing")
             }

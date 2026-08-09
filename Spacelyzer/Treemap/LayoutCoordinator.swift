@@ -82,14 +82,20 @@ final class LayoutCoordinator {
         recompute()
     }
 
+    /// How long a size has to hold still before it is worth laying out for.
+    ///
+    /// A resize arrives once a frame while a window edge, the split divider, or the details panel
+    /// is moving. Squarifying has no cancellation point, so a superseded layout runs to completion
+    /// anyway, and starting one per frame puts a dozen full layouts of the same tree on the
+    /// processor at once — which stutters the very movement being watched.
+    private static let resizeSettleTime = Duration.milliseconds(90)
+
     func resize(to newBounds: CGRect) {
-        // Resizing is continuous, so recomputing on every pixel would queue work faster than it
-        // completes. Only a real change in size earns a relayout.
         guard newBounds.size != bounds.size, newBounds.width > 0, newBounds.height > 0 else {
             return
         }
         bounds = newBounds
-        recompute()
+        recompute(afterSettling: true)
     }
 
     /// A remainder stands for many items and has no subtree of its own, so it is not a place to
@@ -120,7 +126,7 @@ final class LayoutCoordinator {
         recompute()
     }
 
-    private func recompute() {
+    private func recompute(afterSettling: Bool = false) {
         guard let current = stack.last, bounds.width > 0, bounds.height > 0 else { return }
 
         layoutTask?.cancel()
@@ -137,6 +143,13 @@ final class LayoutCoordinator {
             // leaves the indicator claimed forever, so the canvas stays dimmed and the app says
             // it is working while sitting idle.
             defer { self.activity.end() }
+
+            if afterSettling {
+                // Cancelled by the next resize, so a burst of them costs one layout rather than
+                // one each. The canvas stretches the picture it already has in the meantime.
+                try? await Task.sleep(for: Self.resizeSettleTime)
+                guard !Task.isCancelled else { return }
+            }
 
             let computed = await Task.detached(priority: .userInitiated) {
                 let layout = engine.layout(
