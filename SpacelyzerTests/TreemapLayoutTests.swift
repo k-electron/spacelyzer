@@ -185,6 +185,28 @@ struct TreemapLayoutTests {
         #expect(empty.nodes.contains { $0.name == "root" })
     }
 
+    @Test("Every rectangle knows which top-level folder it descends from")
+    func nodesCarryTheirBranch() throws {
+        let root = item("root", 1_000, children: [
+            item("big", 600, children: [item("deep.bin", 600)]),
+            item("small", 400),
+        ])
+
+        let layout = SquarifiedLayout().layout(root: root, rootPath: "/root", in: canvas)
+
+        func branch(_ name: String) throws -> Int {
+            try #require(layout.nodes.first { $0.name == name }).branch
+        }
+
+        // Branches are numbered in layout order, which is descending size.
+        #expect(try branch("root") == -1)
+        #expect(try branch("big") == 0)
+        #expect(try branch("small") == 1)
+        // Colouring by folder depends on descendants inheriting their branch rather than
+        // starting a new one.
+        #expect(try branch("deep.bin") == 0)
+    }
+
     @Test("Hit testing finds the deepest rectangle under a point")
     func hitTestingPrefersTheDeepestNode() throws {
         let root = item("root", 1_000, children: [

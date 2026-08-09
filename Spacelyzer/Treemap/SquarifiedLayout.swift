@@ -16,6 +16,10 @@ nonisolated struct TreemapNode: Identifiable, Sendable, Equatable {
     let depth: Int
     /// How many items this rectangle stands for: one for a real item, more for a remainder.
     let collapsedCount: Int
+    /// Which immediate child of the displayed root this descends from, or -1 for the root itself.
+    /// Colouring by folder needs it, and it is far cheaper to carry down during layout than to
+    /// recover afterwards by matching path prefixes.
+    let branch: Int
 
     var isRemainder: Bool { kind == .remainder }
 }
@@ -54,13 +58,12 @@ nonisolated struct SquarifiedLayout: Sendable {
             path: String,
             rect: CGRect,
             depth: Int,
-            collapsedCount: Int
-        ) -> Int {
-            let id = nextID
-            nextID += 1
+            collapsedCount: Int,
+            branch: Int
+        ) {
             nodes.append(
                 TreemapNode(
-                    id: id,
+                    id: nextID,
                     name: item.name,
                     path: path,
                     kind: item.kind,
@@ -69,18 +72,19 @@ nonisolated struct SquarifiedLayout: Sendable {
                     itemCount: item.itemCount,
                     rect: rect,
                     depth: depth,
-                    collapsedCount: collapsedCount
+                    collapsedCount: collapsedCount,
+                    branch: branch
                 )
             )
-            return id
+            nextID += 1
         }
 
-        func place(_ item: ScannedItem, path: String, rect: CGRect, depth: Int) {
-            _ = append(item, path: path, rect: rect, depth: depth, collapsedCount: 1)
-            descend(into: item, path: path, rect: rect, depth: depth)
+        func place(_ item: ScannedItem, path: String, rect: CGRect, depth: Int, branch: Int) {
+            append(item, path: path, rect: rect, depth: depth, collapsedCount: 1, branch: branch)
+            descend(into: item, path: path, rect: rect, depth: depth, branch: branch)
         }
 
-        func descend(into item: ScannedItem, path: String, rect: CGRect, depth: Int) {
+        func descend(into item: ScannedItem, path: String, rect: CGRect, depth: Int, branch: Int) {
             // Nothing below a rectangle this small can be told apart, so the parent stands for its
             // own contents and the recursion stops. This is also what bounds the work: a million
             // nodes cannot all be drawn into a pane a few hundred points wide.
@@ -108,24 +112,28 @@ nonisolated struct SquarifiedLayout: Sendable {
                     child,
                     path: path + "/" + child.name,
                     rect: childRect,
-                    depth: depth + 1
+                    depth: depth + 1,
+                    // Immediate children of the displayed root start a branch; everything below
+                    // inherits the one it belongs to.
+                    branch: depth == 0 ? index : branch
                 )
             }
 
             // Combined rather than dropped, so the picture never quietly loses bytes (FR-032).
             if let remainder, let remainderRect = rects.last,
                remainderRect.width > 0, remainderRect.height > 0 {
-                _ = append(
+                append(
                     remainder,
                     path: path,
                     rect: remainderRect,
                     depth: depth + 1,
-                    collapsedCount: remainder.itemCount
+                    collapsedCount: remainder.itemCount,
+                    branch: depth == 0 ? drawable.count : branch
                 )
             }
         }
 
-        place(root, path: rootPath, rect: bounds, depth: 0)
+        place(root, path: rootPath, rect: bounds, depth: 0, branch: -1)
 
         return TreemapLayout(
             nodes: nodes,

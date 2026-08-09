@@ -2,12 +2,29 @@ import SwiftUI
 
 /// Explains what the colours mean (FR-029). Colour without a key is decoration.
 struct TreemapLegendView: View {
-    /// Only the categories actually on screen. A legend listing colours the user cannot see
-    /// makes them hunt for something that is not there.
-    let categories: [FileCategory]
+    struct Entry: Identifiable {
+        let id: String
+        let label: String
+        let color: Color
+    }
+
+    /// Only what is actually on screen. A legend listing colours the user cannot see sends them
+    /// hunting for something that is not there.
+    let entries: [Entry]
+    /// Shown when the colouring has no discrete keys to list, as depth shading does not.
+    let caption: String?
 
     var body: some View {
-        if !categories.isEmpty {
+        if entries.isEmpty {
+            if let caption {
+                Text(caption)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .padding(.horizontal, 10)
+                    .padding(.vertical, 6)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            }
+        } else {
             ViewThatFits(in: .horizontal) {
                 row
                 ScrollView(.horizontal, showsIndicators: false) { row }
@@ -17,14 +34,15 @@ struct TreemapLegendView: View {
 
     private var row: some View {
         HStack(spacing: 12) {
-            ForEach(categories, id: \.self) { category in
+            ForEach(entries) { entry in
                 HStack(spacing: 5) {
                     RoundedRectangle(cornerRadius: 2)
-                        .fill(category.color.opacity(0.75))
+                        .fill(entry.color.opacity(0.8))
                         .frame(width: 10, height: 10)
-                    Text(category.label)
+                    Text(entry.label)
                         .font(.caption)
                         .foregroundStyle(.secondary)
+                        .lineLimit(1)
                 }
             }
         }

@@ -92,12 +92,10 @@ private struct NodeRow: View {
                     .foregroundStyle(.secondary)
             }
 
-            if let share = formatter.share(of: item.cumulativeSize, in: parentTotal) {
-                Text(share)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                    .monospacedDigit()
-            }
+            ShareBar(
+                fraction: parentTotal > 0 ? Double(item.cumulativeSize) / Double(parentTotal) : 0,
+                text: formatter.share(of: item.cumulativeSize, in: parentTotal)
+            )
 
             Text(formatter.string(from: item.cumulativeSize))
                 .monospacedDigit()
@@ -133,5 +131,49 @@ private struct NodeRow: View {
             parts.append("counted elsewhere")
         }
         return parts.joined(separator: ", ")
+    }
+}
+
+/// A row's share of its parent, drawn rather than spelled out.
+///
+/// A column of percentages is a column of numbers to read one at a time; a column of bars can be
+/// scanned in one pass. The number is still there for anyone who wants it — pointing at the bar
+/// swaps it in, and the slot keeps a fixed width so nothing shifts when it does.
+private struct ShareBar: View {
+    let fraction: Double
+    let text: String?
+
+    @State private var isHovering = false
+
+    private static let width: CGFloat = 54
+
+    var body: some View {
+        ZStack(alignment: .leading) {
+            if isHovering, let text {
+                Text(text)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .monospacedDigit()
+                    .frame(width: Self.width, alignment: .trailing)
+            } else {
+                Capsule()
+                    .fill(.quaternary)
+                    .frame(width: Self.width, height: 5)
+                // The accent rather than the row's category colour: the icon already carries the
+                // category, and a column of bars is only scannable if the bars share one colour.
+                Capsule()
+                    .fill(Color.accentColor)
+                    .frame(width: max(1, Self.width * clamped), height: 5)
+            }
+        }
+        .frame(width: Self.width, height: 14)
+        .contentShape(.rect)
+        .onHover { isHovering = $0 }
+        .help(text ?? "")
+        .accessibilityHidden(true)
+    }
+
+    private var clamped: Double {
+        fraction.isFinite ? min(1, max(0, fraction)) : 0
     }
 }

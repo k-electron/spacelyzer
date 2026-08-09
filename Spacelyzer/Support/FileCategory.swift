@@ -13,6 +13,7 @@ nonisolated enum FileCategory: Int, Codable, CaseIterable, Sendable {
     case code
     case application
     case data
+    case font
     case other
 
     var label: String {
@@ -26,6 +27,7 @@ nonisolated enum FileCategory: Int, Codable, CaseIterable, Sendable {
         case .code: "Code"
         case .application: "Applications"
         case .data: "Data"
+        case .font: "Fonts"
         case .other: "Other"
         }
     }
@@ -41,6 +43,7 @@ nonisolated enum FileCategory: Int, Codable, CaseIterable, Sendable {
         case .code: .green
         case .application: .orange
         case .data: .indigo
+        case .font: .mint
         case .other: .secondary
         }
     }
@@ -53,8 +56,12 @@ nonisolated enum FileCategory: Int, Codable, CaseIterable, Sendable {
         if type.conforms(to: .image) { return .image }
         if type.conforms(to: .movie) || type.conforms(to: .video) { return .video }
         if type.conforms(to: .audio) { return .audio }
-        if type.conforms(to: .archive) { return .archive }
+        // Before archive: a disk image conforms to both, and calling a .dmg an archive is closer
+        // to how someone thinks about it than calling it a disk.
+        if type.conforms(to: .diskImage) || type.conforms(to: .archive) { return .archive }
+        if type.conforms(to: .font) { return .font }
         if type.conforms(to: .sourceCode) || type.conforms(to: .script) { return .code }
+        if type.conforms(to: .executable) || type.conforms(to: .unixExecutable) { return .application }
         if type.conforms(to: .database) || type.conforms(to: .json) || type.conforms(to: .propertyList) {
             return .data
         }

@@ -1,6 +1,53 @@
 import CoreGraphics
 import SwiftUI
 
+/// What the colours in the treemap stand for.
+nonisolated enum TreemapColoring: String, CaseIterable, Identifiable, Sendable {
+    /// Each immediate child of the displayed root gets its own hue. Usually the most useful of
+    /// the three: it answers "which folder is taking the space" without reading anything.
+    case folder = "Folder"
+    case category = "Kind"
+    case depth = "Depth"
+
+    var id: String { rawValue }
+
+    var explanation: String {
+        switch self {
+        case .folder: "Each top-level folder has its own colour."
+        case .category: "Colour by kind of file."
+        case .depth: "Lighter shades sit deeper in the hierarchy."
+        }
+    }
+
+    /// Hues spaced by the golden angle, which keeps neighbouring branches far apart in colour
+    /// however many there are, instead of collapsing into a gradient the way evenly dividing the
+    /// wheel does once the count grows.
+    static func branchColor(_ branch: Int) -> Color {
+        guard branch >= 0 else { return .gray }
+        let hue = (Double(branch) * 0.618_033_988_75).truncatingRemainder(dividingBy: 1)
+        return Color(hue: hue, saturation: 0.55, brightness: 0.85)
+    }
+
+    /// Includes the shading for depth, because how much of the signal depth carries differs by
+    /// mode: elsewhere it is a hint that keeps nesting readable, and in depth mode it is the
+    /// entire point.
+    func color(for node: TreemapNode) -> Color {
+        if node.isRemainder { return Color(nsColor: .quaternaryLabelColor) }
+        let depth = Double(min(6, max(0, node.depth)))
+
+        switch self {
+        case .folder:
+            return Self.branchColor(node.branch).opacity(0.55 + depth * 0.07)
+        case .category:
+            return node.category.color.opacity(0.55 + depth * 0.07)
+        case .depth:
+            // Brightness rather than opacity. An opacity ramp over one hue is nearly invisible
+            // against a dark background, which left the mode saying nothing.
+            return Color(hue: 0.58, saturation: 0.55, brightness: 0.28 + depth * 0.11)
+        }
+    }
+}
+
 /// Draws the laid-out rectangles and turns pointer movement into hover and drilling.
 ///
 /// One `Canvas` for the whole picture rather than a view per item: at a million items the view
@@ -9,6 +56,7 @@ import SwiftUI
 struct TreemapCanvas: View {
     let snapshot: LayoutSnapshot
     let formatter: SizeFormatter
+    let coloring: TreemapColoring
     let isRecomputing: Bool
     let onDrill: (TreemapNode) -> Void
     let onResize: (CGRect) -> Void
@@ -54,7 +102,7 @@ struct TreemapCanvas: View {
             guard rect.width >= 1, rect.height >= 1 else { continue }
 
             let path = Path(rect)
-            context.fill(path, with: .color(fill(for: node)))
+            context.fill(path, with: .color(coloring.color(for: node)))
 
             // FR-028: without a boundary a viewer cannot tell which parent a rectangle belongs to.
             if rect.width > 3, rect.height > 3 {
@@ -148,16 +196,6 @@ struct TreemapCanvas: View {
             if size.width <= available.width { return (text, size) }
         }
         return nil
-    }
-
-    /// Deeper rectangles sit lighter than their parents, so nesting reads even where two siblings
-    /// share a category colour.
-    private func fill(for node: TreemapNode) -> Color {
-        if node.isRemainder {
-            return Color(nsColor: .quaternaryLabelColor)
-        }
-        let lift = min(0.35, Double(node.depth) * 0.07)
-        return node.category.color.opacity(0.55 + lift)
     }
 
     @ViewBuilder

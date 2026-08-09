@@ -1,5 +1,6 @@
 import Foundation
 import Testing
+import UniformTypeIdentifiers
 @testable import Spacelyzer
 
 @Suite("Size formatting")
@@ -76,6 +77,20 @@ struct FileCategoryTests {
     @Test("Directories classify as folders regardless of type")
     func directoriesAreFolders() {
         #expect(FileCategory.classify(nil, isDirectory: true) == .folder)
+    }
+
+    @Test("Fonts are their own kind rather than falling through to other")
+    func fontsAreClassified() {
+        // Scanning a fonts folder produced an entirely grey treemap, because every file in it
+        // landed in the catch-all.
+        #expect(FileCategory.classify(.font, isDirectory: false) == .font)
+        #expect(FileCategory.classify(UTType(filenameExtension: "ttf"), isDirectory: false) == .font)
+        #expect(FileCategory.classify(UTType(filenameExtension: "ttc"), isDirectory: false) == .font)
+    }
+
+    @Test("A disk image reads as an archive rather than as a disk")
+    func diskImagesAreArchives() {
+        #expect(FileCategory.classify(.diskImage, isDirectory: false) == .archive)
     }
 
     @Test("An unknown type falls back to other rather than guessing")

@@ -17,6 +17,7 @@ struct MainSplitView: View {
     @State private var showingExclusions = false
     @State private var coordinator = LayoutCoordinator()
     @State private var trailingTab: TrailingTab = .treemap
+    @State private var coloring: TreemapColoring = .folder
     /// The list in force when the displayed result was produced, so a later change to it can be
     /// recognised as making that result stale rather than merely old (FR-013).
     @State private var scannedWithExclusions: [URL] = []
@@ -292,17 +293,29 @@ struct MainSplitView: View {
     private var treemapPane: some View {
         if coordinator.hasContent {
             VStack(spacing: 0) {
-                TreemapTrailView(trail: coordinator.trail) { coordinator.navigate(toDepth: $0) }
+                HStack {
+                    TreemapTrailView(trail: coordinator.trail) {
+                        coordinator.navigate(toDepth: $0)
+                    }
+                    Picker("Colour", selection: $coloring) {
+                        ForEach(TreemapColoring.allCases) { Text($0.rawValue).tag($0) }
+                    }
+                    .labelsHidden()
+                    .frame(width: 110)
+                    .padding(.trailing, 8)
+                    .help("What the colours stand for")
+                }
                 Divider()
                 TreemapCanvas(
                     snapshot: coordinator.snapshot,
                     formatter: formatter,
+                    coloring: coloring,
                     isRecomputing: coordinator.activity.isVisible,
                     onDrill: { coordinator.drill(into: $0) },
                     onResize: { coordinator.resize(to: $0) }
                 )
                 Divider()
-                TreemapLegendView(categories: visibleCategories)
+                TreemapLegendView(entries: legendEntries, caption: coloring.explanation)
             }
         } else {
             ContentUnavailableView(
@@ -334,9 +347,31 @@ struct MainSplitView: View {
     }
 
     /// Only what is actually drawn, so the legend never lists a colour that is not on screen.
-    private var visibleCategories: [FileCategory] {
-        let present = Set(coordinator.layout.nodes.filter { !$0.isRemainder }.map(\.category))
-        return FileCategory.allCases.filter(present.contains)
+    private var legendEntries: [TreemapLegendView.Entry] {
+        let drawn = coordinator.layout.nodes.filter { !$0.isRemainder }
+
+        switch coloring {
+        case .category:
+            let present = Set(drawn.map(\.category))
+            return FileCategory.allCases.filter(present.contains).map {
+                TreemapLegendView.Entry(id: $0.label, label: $0.label, color: $0.color)
+            }
+        case .folder:
+            // Named from the depth-one rectangles, which are exactly the branches, and ordered
+            // by branch so the legend reads in the same order the layout placed them.
+            return drawn
+                .filter { $0.depth == 1 }
+                .sorted { $0.branch < $1.branch }
+                .map {
+                    TreemapLegendView.Entry(
+                        id: $0.path,
+                        label: $0.name,
+                        color: TreemapColoring.branchColor($0.branch)
+                    )
+                }
+        case .depth:
+            return []
+        }
     }
 
     @ToolbarContentBuilder
