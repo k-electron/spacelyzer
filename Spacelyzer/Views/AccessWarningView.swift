@@ -12,10 +12,10 @@ struct AccessWarningView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
-            Label("Some locations won't be measured", systemImage: "lock.circle")
+            Label("Some locations won't be analyzed", systemImage: "lock.circle")
                 .font(.headline)
 
-            Text("macOS withholds these from apps until you allow it. Everything else will still be measured, and the total will say what was left out.")
+            Text("macOS withholds these from apps until you allow it. Everything else will still be analyzed, and the total will say what was left out.")
                 .font(.callout)
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)

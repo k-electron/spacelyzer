@@ -66,7 +66,7 @@ final class AccessBroker {
         panel.canChooseFiles = false
         panel.allowsMultipleSelection = false
         panel.prompt = "Scan"
-        panel.message = "Choose a folder to measure"
+        panel.message = "Choose a folder to analyze"
         return panel.runModal() == .OK ? panel.url : nil
     }
 

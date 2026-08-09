@@ -43,7 +43,7 @@ final class ScanController {
         root = nil
         rootURL = url
         accounting = nil
-        activity.begin("Measuring \(url.lastPathComponent)")
+        activity.begin("Analyzing \(url.lastPathComponent)")
 
         var options = ScanOptions()
         options.exclude(exclusions)

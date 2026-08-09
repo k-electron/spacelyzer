@@ -210,7 +210,7 @@ struct MainSplitView: View {
                     }
                     .controlSize(.small)
                     .disabled(controller.isRunning)
-                    .help("Measure this location again")
+                    .help("Analyze this location again")
 
                     Button {
                         if let picked = broker.chooseFolder() { beginScan(picked) }
@@ -385,9 +385,9 @@ struct MainSplitView: View {
             }
         } else {
             ContentUnavailableView(
-                "Nothing measured yet",
+                "Nothing analyzed yet",
                 systemImage: "square.grid.3x3",
-                description: Text("Scan a folder or a volume and it will be drawn here.")
+                description: Text("Analyze a folder or a volume and it will be drawn here.")
             )
         }
     }

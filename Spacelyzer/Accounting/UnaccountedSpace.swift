@@ -26,16 +26,16 @@ nonisolated enum UnaccountedCause: Int, Codable, Sendable, CaseIterable {
         switch self {
         case .outsideScanRoot:
             """
-            You measured one folder rather than the whole volume. Everything else stored on it is \
+            You analyzed one folder rather than the whole volume. Everything else stored on it is \
             still using space, and is grouped here rather than broken down.
             """
         case .permissionDenied:
             """
             macOS protects some folders until you allow an app to read them. Their contents are \
-            not included in the measurement.
+            not included in the analysis.
             """
         case .userExcluded:
-            "You asked for these to be left out of the scan, so their contents were not measured."
+            "You asked for these to be left out, so their contents were not analyzed."
         case .otherVolumes:
             """
             This drive is divided into several volumes that share its space. Only the one you \

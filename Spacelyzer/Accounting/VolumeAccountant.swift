@@ -100,8 +100,8 @@ nonisolated struct VolumeAccountant: Sendable {
                     bytes: nil,
                     locations: denied,
                     sizeUnknownReason: denied.count == 1
-                        ? "One location could not be opened, so its contents could not be measured."
-                        : "\(denied.count) locations could not be opened, so their contents could not be measured."
+                        ? "One location could not be opened, so its contents could not be analyzed."
+                        : "\(denied.count) locations could not be opened, so their contents could not be analyzed."
                 )
             )
         }
@@ -111,7 +111,7 @@ nonisolated struct VolumeAccountant: Sendable {
                     cause: .userExcluded,
                     bytes: nil,
                     locations: excluded,
-                    sizeUnknownReason: "Excluded folders are skipped rather than measured, so their size is not known."
+                    sizeUnknownReason: "Excluded folders are skipped rather than analyzed, so their size is not known."
                 )
             )
         }

@@ -43,7 +43,7 @@ final class SpacelyzerUITests: XCTestCase {
             "The leading pane should offer somewhere to start"
         )
         XCTAssertTrue(
-            app.staticTexts["Nothing measured yet"].waitForExistence(timeout: 10),
+            app.staticTexts["Nothing analyzed yet"].waitForExistence(timeout: 10),
             "The trailing pane should explain itself rather than sitting blank"
         )
     }

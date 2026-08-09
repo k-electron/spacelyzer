@@ -13,7 +13,7 @@ struct ScanProgressView: View {
             HStack {
                 ProgressView()
                     .controlSize(.small)
-                Text("Measuring")
+                Text("Analyzing")
                     .font(.headline)
                 Spacer()
                 // Cancellation stays reachable throughout; background work must never block its

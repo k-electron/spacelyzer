@@ -10,8 +10,8 @@ nonisolated enum ExclusionRefusal: Error, Equatable {
         switch self {
         case .wouldExcludeScanRoot:
             """
-            That folder is the one being measured. Excluding it would leave nothing to scan, so \
-            choose a folder inside it instead.
+            That folder is the one being analyzed. Excluding it would leave nothing to look at, \
+            so choose a folder inside it instead.
             """
         case .alreadyExcluded:
             "That folder is already excluded."

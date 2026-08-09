@@ -70,13 +70,13 @@ struct VolumeAccountingView: View {
     private var breakdown: some View {
         VStack(alignment: .leading, spacing: 0) {
             line(
-                title: "Measured by this scan",
+                title: "Analyzed by this scan",
                 bytes: accounting.measuredBytes,
                 emphasis: true
             )
             Divider().padding(.vertical, 8)
 
-            Text("Not measured")
+            Text("Not analyzed")
                 .font(.headline)
                 .padding(.bottom, 6)
 
@@ -189,7 +189,7 @@ struct VolumeAccountingView: View {
         let capacity = Double(max(accounting.totalCapacity, 1))
         var result: [Segment] = [
             Segment(
-                label: "Measured",
+                label: "Analyzed",
                 fraction: Double(accounting.measuredBytes) / capacity,
                 color: .accentColor
             )
@@ -218,9 +218,9 @@ struct VolumeAccountingView: View {
     }
 
     private var accessibilitySummary: String {
-        let measured = formatter.string(from: accounting.measuredBytes)
+        let analyzed = formatter.string(from: accounting.measuredBytes)
         let used = formatter.string(from: accounting.usedBytes)
         let capacity = formatter.string(from: accounting.totalCapacity)
-        return "\(measured) measured, \(used) used, of \(capacity) capacity"
+        return "\(analyzed) analyzed, \(used) used, of \(capacity) capacity"
     }
 }

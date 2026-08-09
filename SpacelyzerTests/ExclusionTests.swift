@@ -70,7 +70,7 @@ struct ExclusionTests {
         #expect(throws: ExclusionRefusal.wouldExcludeScanRoot) {
             try rules.add(fixture.root, scanRoot: fixture.root)
         }
-        #expect(ExclusionRefusal.wouldExcludeScanRoot.explanation.contains("nothing to scan"))
+        #expect(ExclusionRefusal.wouldExcludeScanRoot.explanation.contains("nothing to look at"))
         #expect(rules.all().isEmpty)
     }
 
