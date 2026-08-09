@@ -189,12 +189,24 @@ struct MainSplitView: View {
         )
     }
 
+    @ViewBuilder
     private var trailingPane: some View {
-        ContentUnavailableView(
-            "Treemap",
-            systemImage: "square.grid.3x3",
-            description: Text("The proportional view arrives with User Story 3.")
-        )
+        if let accounting = controller.accounting {
+            VolumeAccountingView(accounting: accounting, formatter: formatter)
+        } else if controller.accountingActivity.isVisible {
+            VStack(spacing: 10) {
+                ProgressView()
+                Text(controller.accountingActivity.message ?? "Checking the totals")
+                    .foregroundStyle(.secondary)
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+        } else {
+            ContentUnavailableView(
+                "Treemap",
+                systemImage: "square.grid.3x3",
+                description: Text("The proportional view arrives with User Story 3.")
+            )
+        }
     }
 
     @ToolbarContentBuilder
