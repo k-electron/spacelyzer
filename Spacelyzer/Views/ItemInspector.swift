@@ -70,7 +70,7 @@ final class ItemInspector {
     /// Details land immediately; only the preview waits. Walking down a list of files with the
     /// arrow keys would otherwise commission a render for every row passed through on the way to
     /// the one that was wanted, and each of those is real work in another process.
-    private static let previewSettleTime = Duration.milliseconds(150)
+    static let previewSettleTime = Duration.milliseconds(150)
 
     /// Looks at whatever is selected. The path is the same one both views already agree on, so the
     /// item is found by descending the measured tree rather than by scanning the disk again.

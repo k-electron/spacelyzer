@@ -11,7 +11,10 @@ final class ActivityIndicator {
     private(set) var isVisible = false
     private(set) var message: String?
 
-    private let delay: Duration
+    /// How long work may run before it has to say so. Readable so the threshold can be asserted
+    /// against SC-017 directly, rather than by timing a reveal and measuring the scheduler instead.
+    let delay: Duration
+
     private var revealTask: Task<Void, Never>?
     private var depth = 0
 

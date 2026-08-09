@@ -328,11 +328,11 @@ differing contents do not group.
 
 ## Phase 11: Polish & Cross-Cutting Concerns
 
-- [ ] T121 [P] Verify no `print` calls remain and that captured logs redact paths, across `Spacelyzer/`
+- [X] T121 [P] Verify no `print` calls remain and that captured logs redact paths, across `Spacelyzer/` — none remain, nor `NSLog`, `debugPrint`, or `dump`. The redaction half turned out to be vacuous: the app builds no `Logger` and calls no `os_log` anywhere, so there is no captured log to redact a path from. The one place a path could still reach a crash report is the `fatalError` in `SpacelyzerApp.swift`, which interpolates a SwiftData error carrying the store URL — the app's own container rather than anything scanned. Recorded below as an open question, since what is wrong with that line is the crash rather than the path
 - [ ] T122 [P] Full VoiceOver pass over every view, confirming keyboard reachability of all treemap operations (Principle V)
 - [ ] T123 Measure a 500,000-item fixture scan against SC-001 and SC-002 and record the result in `specs/001-disk-space-explorer/research.md` R5
 - [ ] T124 Measure filter application and treemap interaction at 1,000,000 items against SC-005 and SC-009, and reopen the storage decision in research R5 if either is missed
-- [ ] T125 [P] Confirm no operation leaves the interface unchanged beyond 150 ms without indication, per SC-017
+- [X] T125 [P] Confirm no operation leaves the interface unchanged beyond 150 ms without indication, per SC-017 — pinned as a test in `SpacelyzerTests/SupportTests.swift` rather than confirmed by watching, so a coordinator added later with a slacker threshold fails the build. Scanning, reconciling the volume, filtering, and laying out the treemap all reveal at exactly 150 ms; removal and undo show progress immediately, having no threshold to meet. Inspection is the one deliberate exception at 300 ms, because Quick Look is not asked for anything until the selection has held still for 150 ms and an indicator on the same threshold would appear and vanish on every click. The click is still answered inside the budget by the selection moving in both views and the facts landing, so what waits is the spinner over the preview rather than the window's response
 - [ ] T126 [P] Observe network activity across a full session to confirm SC-016 holds
 - [ ] T127 Work through every scenario in `specs/001-disk-space-explorer/quickstart.md` and correct any that no longer match behaviour (Principle VII)
 - [ ] T128 [P] Update `specs/001-disk-space-explorer/spec.md` and `plan.md` for any divergence discovered during implementation (Principle VII)
