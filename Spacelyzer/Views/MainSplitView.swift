@@ -119,6 +119,8 @@ struct MainSplitView: View {
     @ViewBuilder
     private var leadingPane: some View {
         VStack(spacing: 0) {
+            locationHeader
+
             if let pending = pendingScan {
                 AccessWarningView(
                     locations: broker.protectedLocationsAtRisk(under: pending),
@@ -181,6 +183,48 @@ struct MainSplitView: View {
                 SkippedLocationsView(skipped: controller.skipped)
                     .padding(.vertical, 6)
             }
+        }
+    }
+
+    /// What is being shown, and the way to go somewhere else, pinned above the tree rather than
+    /// scrolling away with it. Starting a new scan is the most common thing to want next, so it
+    /// belongs beside the results rather than in the toolbar across the window.
+    @ViewBuilder
+    private var locationHeader: some View {
+        if let url = controller.rootURL {
+            VStack(spacing: 0) {
+                HStack(spacing: 8) {
+                    Image(systemName: "folder")
+                        .foregroundStyle(.secondary)
+                    Text(url.standardizedFileURL.path)
+                        .lineLimit(1)
+                        .truncationMode(.head)
+                        .help(url.standardizedFileURL.path)
+
+                    Spacer(minLength: 8)
+
+                    Button {
+                        controller.rescan(excluding: scannedWithExclusions)
+                    } label: {
+                        Image(systemName: "arrow.clockwise")
+                    }
+                    .controlSize(.small)
+                    .disabled(controller.isRunning)
+                    .help("Measure this location again")
+
+                    Button {
+                        if let picked = broker.chooseFolder() { beginScan(picked) }
+                    } label: {
+                        Label("Scan Another…", systemImage: "folder.badge.magnifyingglass")
+                    }
+                    .controlSize(.small)
+                }
+                .padding(.horizontal, 10)
+                .padding(.vertical, 6)
+
+                Divider()
+            }
+            .background(.bar)
         }
     }
 
@@ -426,23 +470,8 @@ struct MainSplitView: View {
             }
             .help("Choose folders to leave out of scans")
         }
-        ToolbarItem {
-            Button {
-                if let url = controller.rootURL { startScan(url) }
-            } label: {
-                Label("Rescan", systemImage: "arrow.clockwise")
-            }
-            .disabled(controller.rootURL == nil || controller.isRunning)
-            .help("Measure this location again")
-        }
-        ToolbarItem {
-            Button {
-                if let url = broker.chooseFolder() {
-                    beginScan(url)
-                }
-            } label: {
-                Label("Scan Folder", systemImage: "folder.badge.magnifyingglass")
-            }
-        }
+        // Choosing somewhere to scan and rescanning where you are both live in the header above
+        // the tree now. They act on what the left pane is showing, so putting them across the
+        // window from it only made them harder to find.
     }
 }
