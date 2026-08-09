@@ -13,26 +13,17 @@ struct FilterBarView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
-            HStack(spacing: 8) {
-                Image(systemName: "line.3.horizontal.decrease.circle")
-                    .foregroundStyle(.secondary)
-
-                TextField("Filter by name", text: nameBinding)
-                    .textFieldStyle(.roundedBorder)
-                    .frame(maxWidth: 220)
-
-                sizeMenu
-                dateMenu
-                categoryMenu
-                extensionField
-
-                if isWorking {
-                    ProgressView().controlSize(.small)
+            // These controls do not get to decide how narrow this pane can be. Menus decline to
+            // compress, and laid out in one unyielding row their combined width became the
+            // narrowest the tree could be — and through it the narrowest the window could be, so
+            // widening the details panel had nowhere to take room from and grew the window
+            // instead. Given less room than they want they scroll, the same as the chips below
+            // them and the treemap legend.
+            ViewThatFits(in: .horizontal) {
+                controls(pushingSummaryRight: true)
+                ScrollView(.horizontal, showsIndicators: false) {
+                    controls(pushingSummaryRight: false)
                 }
-
-                Spacer(minLength: 8)
-
-                summary
             }
 
             if !filter.isEmpty {
@@ -41,6 +32,34 @@ struct FilterBarView: View {
         }
         .padding(.horizontal, 10)
         .padding(.vertical, 6)
+    }
+
+    /// The summary sits hard right when there is room to spare and follows the controls when
+    /// there is not, because a spacer inside a scrolling row is just a gap nobody asked for.
+    private func controls(pushingSummaryRight: Bool) -> some View {
+        HStack(spacing: 8) {
+            Image(systemName: "line.3.horizontal.decrease.circle")
+                .foregroundStyle(.secondary)
+
+            TextField("Filter by name", text: nameBinding)
+                .textFieldStyle(.roundedBorder)
+                .frame(maxWidth: 220)
+
+            sizeMenu
+            dateMenu
+            categoryMenu
+            extensionField
+
+            if isWorking {
+                ProgressView().controlSize(.small)
+            }
+
+            if pushingSummaryRight {
+                Spacer(minLength: 8)
+            }
+
+            summary
+        }
     }
 
     private var nameBinding: Binding<String> {

@@ -61,11 +61,11 @@ struct MainSplitView: View {
                     max: 900
                 )
         } detail: {
+            // No stated width. The detail column takes whatever is left, which is the whole point
+            // of it; giving it an ideal turned that ideal into a floor, and the floor plus the
+            // sidebar's became a window minimum nothing could shrink past. Widening the details
+            // panel then had nowhere to take the room from and grew the window instead.
             trailingPane
-                .navigationSplitViewColumnWidth(
-                    min: 320,
-                    ideal: Self.defaultWindowSize.width * 2 / 3
-                )
         }
         // Balanced keeps the tree a column beside the picture. The automatic style would let it
         // slide over the top as an overlay, which is the arrangement this pane exists not to be.
@@ -80,7 +80,13 @@ struct MainSplitView: View {
                 formatter: formatter,
                 inspect: { inspectSelection($0) }
             )
-            .inspectorColumnWidth(min: 260, ideal: 320, max: 480)
+            // One fixed width, so the panel cannot be dragged. Given a range it could be, and
+            // dragging it widened the window instead of narrowing the picture — measured at every
+            // step, and it happened with an empty detail column and with nothing greedy in the
+            // panel, so it is how this inspector resizes rather than anything it was holding.
+            // A panel that cannot be dragged is a normal thing on this platform; one that drags
+            // the window out from under you is not.
+            .inspectorColumnWidth(320)
         }
         .toolbar { toolbarContent }
         // Applied at the root so the whole window follows, including sheets and popovers.

@@ -138,6 +138,42 @@ final class SpacelyzerUITests: XCTestCase {
         )
     }
 
+    /// The details panel is a fixed width, so pulling at its edge does nothing at all.
+    ///
+    /// It used to be draggable within a range, and dragging it widened the window rather than
+    /// narrowing the picture — leaving a window that could then not be made small again. The panel
+    /// being immovable is the guarantee that replaced it.
+    @MainActor
+    func testDraggingTheDetailsPanelEdgeMovesNothing() throws {
+        let app = launchApp()
+
+        let toggle = app.buttons["Details"]
+        XCTAssertTrue(toggle.waitForExistence(timeout: 10))
+        toggle.click()
+
+        let empty = app.staticTexts["Nothing selected"]
+        XCTAssertTrue(empty.waitForExistence(timeout: 5))
+
+        let window = app.windows.firstMatch
+        let before = window.frame
+        let panelLeft = 2 * empty.frame.midX - before.maxX
+
+        let edge = window.coordinate(withNormalizedOffset: .zero)
+            .withOffset(CGVector(dx: panelLeft - before.minX, dy: before.height / 2))
+        edge.press(forDuration: 0.3, thenDragTo: edge.withOffset(CGVector(dx: -140, dy: 0)))
+        Thread.sleep(forTimeInterval: 2)
+
+        let after = window.frame
+        XCTAssertEqual(
+            after.width, before.width, accuracy: 2,
+            "Pulling at the panel's edge should not resize the window"
+        )
+        XCTAssertEqual(
+            2 * empty.frame.midX - after.maxX, panelLeft, accuracy: 2,
+            "Pulling at the panel's edge should not resize the panel"
+        )
+    }
+
     /// A preview reports the size its content would like to be, and nothing outside the panel may
     /// act on that. An enclosure does not take its size from what it encloses.
     ///
