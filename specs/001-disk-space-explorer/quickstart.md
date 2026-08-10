@@ -221,16 +221,15 @@ go and report the correct count and reclaimable total before anything is touched
 confirm the items are in the Trash and both views updated without a rescan, then undo from the
 summary and confirm they return to their original locations.
 
-Selecting more than one item at a time is not yet possible: the removal machinery takes any number
-and a folder already stands for every file beneath it, but the selection itself still holds a
-single path. T111a covers the gap. Until it closes, the multi-item cases below are reached by
-selecting a folder whose contents include the item in question.
+The outline and the treemap select one item at a time, deliberately: they share one selection by
+FR-035, and a folder already stands for every file beneath it. A removal of several unrelated
+items is assembled in the duplicates view instead, so the cases below that need one are in
+scenario 8 rather than here.
 
 Try to remove the analysed folder itself, or any protected system location, and confirm it is
-refused with an explanation while anything else in the same request still proceeds. Remove a
-folder where one item has been deleted externally first, and confirm the rest complete with an
-accurate summary. Choose permanent deletion and confirm the separate irreversibility warning
-appears and that undo afterwards reports it cannot be taken back rather than claiming success.
+refused with an explanation and that nothing happens to it. Choose permanent deletion and confirm
+the separate irreversibility warning appears and that undo afterwards reports it cannot be taken
+back rather than claiming success.
 
 Empty the Trash after a removal and confirm undo explains precisely why it cannot restore.
 
@@ -241,6 +240,12 @@ ranked among any others by recoverable space, and expect the app to refuse any s
 remove the last remaining copy. Run it over the equal-size-different-content fixture and expect no
 set at all. Over 100,000 files, detection completes within **5 minutes** with no false positives
 (SC-015).
+
+This is also the only place a removal of several unrelated items is assembled, so the batch cases
+from story 7 belong here. Choose copies from one set and remove them in one go. Include a copy
+sitting somewhere protected and confirm it is refused with an explanation while the rest still
+proceed. Delete one of the chosen copies from outside the app first, then remove the batch, and
+confirm the remainder complete with a summary naming exactly what did not.
 
 ---
 
