@@ -10,59 +10,62 @@ nonisolated struct CategoryTotal: Sendable, Identifiable, Equatable {
     let share: Double
 }
 
-/// What kind of thing is filling the disk (FR-044).
+/// Running totals per category, kept in a fixed array rather than a dictionary because there are
+/// eleven categories and a million chances to look one up.
 ///
-/// Totals come from each item's own size rather than its cumulative one. A folder's cumulative
-/// figure already contains its children, so adding both would count the same bytes twice; own
-/// sizes add up to exactly what the scan measured.
-nonisolated struct CategoryAnalyzer: Sendable {
+/// Exists so that the filtered breakdown can be accumulated inside the walk that decides what
+/// matched, instead of by a second walk of the same tree afterwards.
+nonisolated struct CategoryTally: Sendable {
+    private var bytes = [Int64](repeating: 0, count: FileCategory.allCases.count)
+    private var counts = [Int](repeating: 0, count: FileCategory.allCases.count)
+    private var total: Int64 = 0
 
-    /// `matching` narrows the breakdown to a filter's results. A node counts when it matched or
-    /// when it sits inside something that did — matching a folder means asking what is in it, and
-    /// counting only the folder itself would report nothing, since a folder holds no bytes of its
-    /// own. Totalled this way the breakdown agrees with the combined size the filter reports.
-    func breakdown(
-        of root: ScannedItem,
-        rootPath: String,
-        matching: Set<String>? = nil
-    ) -> [CategoryTotal] {
-        var bytes: [FileCategory: Int64] = [:]
-        var counts: [FileCategory: Int] = [:]
-        var total: Int64 = 0
+    /// Own size rather than cumulative. A folder's cumulative figure already contains its
+    /// children, so adding both would count the same bytes twice.
+    mutating func add(_ item: ScannedItem) {
+        // Hard-linked data reachable by several paths contributes where it was first counted,
+        // preserving the count-once invariant.
+        guard !item.countedElsewhere, item.ownSize > 0 || item.kind != .directory else { return }
+        bytes[item.category.rawValue] += item.ownSize
+        counts[item.category.rawValue] += 1
+        total += item.ownSize
+    }
 
-        func walk(_ item: ScannedItem, path: String, insideMatch: Bool) {
-            let isMatch = insideMatch || (matching?.contains(path) ?? true)
-
-            // Hard-linked data reachable by several paths contributes where it was first counted,
-            // preserving the count-once invariant.
-            if isMatch, !item.countedElsewhere, item.ownSize > 0 || item.kind != .directory {
-                bytes[item.category, default: 0] += item.ownSize
-                counts[item.category, default: 0] += 1
-                total += item.ownSize
-            }
-
-            for child in item.children {
-                walk(child, path: path + "/" + child.name, insideMatch: isMatch)
-            }
-        }
-
-        walk(root, path: rootPath, insideMatch: false)
-
-        return bytes.keys
+    func totals() -> [CategoryTotal] {
+        FileCategory.allCases
+            .filter { counts[$0.rawValue] > 0 }
             .map { category in
                 CategoryTotal(
                     category: category,
-                    bytes: bytes[category] ?? 0,
-                    itemCount: counts[category] ?? 0,
-                    share: total > 0 ? Double(bytes[category] ?? 0) / Double(total) : 0
+                    bytes: bytes[category.rawValue],
+                    itemCount: counts[category.rawValue],
+                    share: total > 0 ? Double(bytes[category.rawValue]) / Double(total) : 0
                 )
             }
             // Biggest first, with a stable tie-break so equal categories do not swap places
             // between one breakdown and the next.
             .sorted {
-                $0.bytes != $1.bytes
-                    ? $0.bytes > $1.bytes
-                    : $0.category.label < $1.category.label
+                $0.bytes != $1.bytes ? $0.bytes > $1.bytes : $0.category.label < $1.category.label
             }
+    }
+}
+
+/// What kind of thing is filling the disk (FR-044), across a whole scan.
+///
+/// The breakdown of a *filtered* subset is not here. It comes out of `FilterEvaluator`, which has
+/// already had to decide what matched and can total it on the way past — a second walk to answer
+/// a question the first one knew the answer to cost as much again as the filter itself.
+nonisolated struct CategoryAnalyzer: Sendable {
+
+    func breakdown(of root: ScannedItem) -> [CategoryTotal] {
+        var tally = CategoryTally()
+
+        func walk(_ item: ScannedItem) {
+            tally.add(item)
+            for child in item.children { walk(child) }
+        }
+
+        walk(root)
+        return tally.totals()
     }
 }
