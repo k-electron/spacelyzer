@@ -26,4 +26,37 @@ enum Storage {
             configurations: ModelConfiguration(schema: durableSchema, isStoredInMemoryOnly: inMemory)
         )
     }
+
+    /// A container to start with, and whether anything will actually be kept.
+    ///
+    /// Opening the store used to be `try` or `fatalError`, which made a store that would not open
+    /// an app that would not launch — permanently, since nothing about launching fixes it. None of
+    /// what it holds is needed to measure a disk: the exclusions, the recent locations, the
+    /// preferences, and the removal history are all conveniences around the job.
+    ///
+    /// So a failure falls back to memory, and says so. Falling back quietly would be worse than
+    /// the crash: the history view would show an empty history and forget again on quit, which is
+    /// not the record of removals Principle II promises. The window carries `warning` where the
+    /// user can see it.
+    /// `openDurable` exists so the failing path can be tested. The only other way to reach it is
+    /// to corrupt a real store on a real machine, which is not something a test may do.
+    static func open(
+        openDurable: () throws -> ModelContainer = { try makeContainer() }
+    ) -> (container: ModelContainer, warning: String?) {
+        do {
+            return (try openDurable(), nil)
+        } catch {
+            guard let fallback = try? makeContainer(inMemory: true) else {
+                // Memory refused as well, which is not a broken store but a broken world. There
+                // is nothing left to fall back to.
+                fatalError("Could not create a model container in memory: \(error)")
+            }
+            return (
+                fallback,
+                "Settings, recent locations, and removal history cannot be saved this session, "
+                    + "because their store would not open. Analysing and removing still work, but "
+                    + "nothing will be remembered after Spacelyzer quits."
+            )
+        }
+    }
 }

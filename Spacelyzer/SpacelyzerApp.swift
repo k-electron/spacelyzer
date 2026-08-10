@@ -9,18 +9,16 @@ import SwiftData
 @main
 struct SpacelyzerApp: App {
     private let container: ModelContainer
+    /// Non-nil when the durable store would not open and this session is running on memory.
+    private let storageWarning: String?
 
     init() {
-        do {
-            container = try Storage.makeContainer()
-        } catch {
-            fatalError("Could not create ModelContainer: \(error)")
-        }
+        (container, storageWarning) = Storage.open()
     }
 
     var body: some Scene {
         WindowGroup {
-            ContentView()
+            ContentView(storageWarning: storageWarning)
         }
         .modelContainer(container)
         // Fixed rather than derived from the content's ideal size, because the split inside starts
