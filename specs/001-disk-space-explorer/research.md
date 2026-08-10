@@ -221,6 +221,43 @@ performance targets — materialised at a twentieth of that scale, and the numbe
 reopened the decision. Building the simple thing first was still the right order: it produced the
 evidence in an afternoon rather than an argument.
 
+**Reopened by the scale runs, and narrowed.** T124 pre-committed to reopening this decision if
+SC-005 or SC-009 were missed at a million items. SC-009 was missed. Both runs are in
+`SpacelyzerTests/ScaleTests.swift`, gated behind `SPACELYZER_SCALE` because together they write a
+million and a half files; measured on a 16-core machine:
+
+| Criterion | Budget | Measured | |
+|---|---|---|---|
+| SC-001 scan of 500,000 items | 60 s | **4.5 s** | passes, with an order of magnitude to spare |
+| SC-002 something visible | 3 s | **0.10 s** | passes, though see below |
+| SC-005 treemap answers the pointer, 1,000,000 items | 100 ms | **1.2 µs** per hover | passes by five orders of magnitude |
+| SC-009 filter updates both views, 1,000,000 items | 200 ms | **1.55 s** | **missed, by about eight times** |
+
+The scan is not the problem and neither is the treemap: hit testing goes through a spatial index
+built once per layout, so pointing at a million items costs the same as pointing at a hundred.
+Laying the treemap out takes 2.6 s at a million, which no criterion budgets — it happens off the
+main actor behind an indicator, and only 4,002 rectangles survive the minimum drawable area.
+
+**What is actually slow is not where the results live.** Applying a filter splits almost exactly in
+half: 0.78 s to evaluate and 0.77 s to produce the category breakdown, two separate walks of the
+same tree. Both build a fresh `path + "/" + child.name` string at every node, because identity in
+`FilterResult` is the path — so a filter change allocates two million strings and hashes them into
+and against `Set<String>`, and the size of the tree is beside the point. Reopening the storage
+question on this evidence would send the next person to rewrite the wrong layer.
+
+The narrower reading, and the one the numbers support: give nodes a stable integer identity
+assigned during traversal, key `matches` and `retained` by that, and the walks stop allocating.
+Merging the breakdown into the evaluator's walk halves what remains. Neither touches where scan
+results live. Whether that reaches 200 ms is unmeasured and should not be assumed — but it is the
+change to measure first, and the value tree stays until something says otherwise.
+
+SC-002 deserves a footnote rather than a tick. First progress arrives in 100 ms, which is the
+configured progress interval rather than a measure of anything, and what appears at that moment is
+a running count and the path being walked. No browsable hierarchy exists before `.completed`,
+because the tree is built as one value at the end. Read as "the user can see it is working" the
+criterion passes easily; read as "partial results are visible" it is answered by progress rather
+than by results, and only the 4.5 s total makes that a distinction without consequence.
+
 **Still available if the value tree proves insufficient.** An integer-indexed store using parallel
 arrays would cut per-node overhead to tens of bytes and make aggregation cache-friendly. A
 memory-mapped file of that same layout under `~/Library/Caches` was the strongest option on the
@@ -365,5 +402,5 @@ matters when previewing arbitrary content found on someone's disk.
 |---|---|
 | R1 access model | Closed. Constitution v2.0.0 dropped the sandbox; build settings updated to match |
 | R4 snapshot sizing | Closed. FR-017 amended with a fallback to the residual when sizing fails |
-| R5 scan storage | Closed by measurement. Value tree for scan results, SwiftData for durable records; benchmark recorded above |
+| R5 scan storage | Closed by measurement, then reopened by the scale runs and closed again narrower. SC-001, SC-002, and SC-005 pass comfortably; SC-009 misses by about eight times, and the cost is path-string identity in the filter rather than where results live. Storage stands; the follow-up is integer node identity, tracked as T133 |
 | R8 Swift 6 mode | Closed. `SWIFT_VERSION` is 6.0, and the isolation default noted above made `nonisolated` an explicit requirement rather than a formality |
