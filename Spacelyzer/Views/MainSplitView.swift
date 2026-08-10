@@ -27,6 +27,8 @@ struct MainSplitView: View {
     @State private var filters = FilterCoordinator()
     @State private var inspector = ItemInspector()
     @State private var removal = RemovalCoordinator()
+    @State private var duplicates = DuplicatesCoordinator()
+    @State private var duplicateThreshold = Preferences.defaultDuplicateSizeThreshold
     @State private var showingHistory = false
     /// Closed until asked for. It answers a question about one item, which is not the question
     /// anyone opens the app with, and it costs a Quick Look render for whatever is selected.
@@ -157,7 +159,9 @@ struct MainSplitView: View {
         .task {
             volumes = broker.mountedVolumes()
             recents = recentLocations.all()
-            appearance = Preferences.current(in: modelContext).appearance
+            let preferences = Preferences.current(in: modelContext)
+            appearance = preferences.appearance
+            duplicateThreshold = preferences.duplicateSizeThreshold
         }
         // A grant made in System Settings only becomes visible on the way back into the app.
         .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
@@ -197,6 +201,7 @@ struct MainSplitView: View {
         case treemap
         case kinds
         case totals
+        case duplicates
     }
 
     /// One way in, so nothing can start a scan without first showing what it will miss.
@@ -246,10 +251,28 @@ struct MainSplitView: View {
         ])
     }
 
+    private func searchForDuplicates() {
+        guard let root = controller.root, let url = controller.rootURL else { return }
+        duplicates.search(
+            in: root,
+            rootPath: url.standardizedFileURL.path,
+            minimumSize: duplicateThreshold
+        )
+    }
+
+    private func changeDuplicateThreshold(to size: Int64) {
+        duplicateThreshold = size
+        Preferences.current(in: modelContext).duplicateSizeThreshold = size
+        try? modelContext.save()
+    }
+
     /// Both views read from the same tree, so taking the removed items out of it is all that is
     /// needed for the picture and the list to agree about the space.
     private func forgetRemoved(_ paths: [String]) {
         controller.forget(paths: paths)
+        // The duplicate sets name files by path too, and a set that has lost all but one copy is
+        // no longer a set. Left alone it would go on offering copies that are in the Trash.
+        duplicates.forget(paths: paths)
         selection.clear()
         inspector.clear()
         refreshViewsFromResult()
@@ -297,6 +320,8 @@ struct MainSplitView: View {
         showingDetails = false
         inspector.clear()
         filters.clearScan()
+        // Sets name files by path, and those paths describe the analysis being replaced.
+        duplicates.clearScan()
         scannedWithExclusions = exclusionRules.excludedURLs()
         controller.scan(root: url, excluding: scannedWithExclusions)
     }
@@ -557,6 +582,7 @@ struct MainSplitView: View {
                 Text("Treemap").tag(TrailingTab.treemap)
                 Text("Kinds").tag(TrailingTab.kinds)
                 Text("Totals").tag(TrailingTab.totals)
+                Text("Duplicates").tag(TrailingTab.duplicates)
             }
             .pickerStyle(.segmented)
             .labelsHidden()
@@ -568,6 +594,7 @@ struct MainSplitView: View {
             case .treemap: treemapPane
             case .kinds: kindsPane
             case .totals: totalsPane
+            case .duplicates: duplicatesPane
             }
         }
     }
@@ -609,6 +636,19 @@ struct MainSplitView: View {
                 description: Text("Analyze a folder or a volume and it will be drawn here.")
             )
         }
+    }
+
+    private var duplicatesPane: some View {
+        DuplicatesView(
+            coordinator: duplicates,
+            formatter: formatter,
+            threshold: duplicateThreshold,
+            canSearch: controller.root != nil && !controller.isRunning,
+            onSearch: { searchForDuplicates() },
+            onCancel: { duplicates.cancel() },
+            onChangeThreshold: { changeDuplicateThreshold(to: $0) },
+            onRemoveMarked: { removal.propose(duplicates.removalCandidates()) }
+        )
     }
 
     private var kindsPane: some View {

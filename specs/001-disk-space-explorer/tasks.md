@@ -309,18 +309,18 @@ differing contents do not group.
 
 ### Tests for User Story 8
 
-- [ ] T112 [P] [US8] Test that byte-identical files group into one set with the correct recoverable total in `SpacelyzerTests/DuplicateFinderTests.swift` (FR-062, FR-064)
-- [ ] T113 [P] [US8] Test that equal-sized files with differing contents are never reported as duplicates in `SpacelyzerTests/DuplicateFinderTests.swift` (FR-063)
-- [ ] T114 [P] [US8] Test that a selection removing every copy in a set is refused by the set itself in `SpacelyzerTests/DuplicateFinderTests.swift` (FR-065)
-- [ ] T115 [P] [US8] Test that the size threshold excludes files below it and is adjustable in `SpacelyzerTests/DuplicateFinderTests.swift`
+- [X] T112 [P] [US8] Test that byte-identical files group into one set with the correct recoverable total in `SpacelyzerTests/DuplicateFinderTests.swift` (FR-062, FR-064)
+- [X] T113 [P] [US8] Test that equal-sized files with differing contents are never reported as duplicates in `SpacelyzerTests/DuplicateFinderTests.swift` (FR-063)
+- [X] T114 [P] [US8] Test that a selection removing every copy in a set is refused by the set itself in `SpacelyzerTests/DuplicateFinderTests.swift` (FR-065)
+- [X] T115 [P] [US8] Test that the size threshold excludes files below it and is adjustable in `SpacelyzerTests/DuplicateFinderTests.swift`
 
 ### Implementation for User Story 8
 
-- [ ] T116 [US8] Implement the three-stage duplicate search — group by size, compare a bounded prefix hash, then full streamed SHA-256 — in `Spacelyzer/Analysis/DuplicateFinder.swift` (research R9)
-- [ ] T117 [US8] Apply the 1 MB default size threshold from `Preferences`, adjustable down to zero, in `Spacelyzer/Analysis/DuplicateFinder.swift`
-- [ ] T118 [US8] Report per-stage progress and check cancellation between files in `Spacelyzer/Analysis/DuplicateFinder.swift` (FR-066)
-- [ ] T119 [US8] Enforce keep-one on `DuplicateSet` itself rather than in the view in `Spacelyzer/Models/DuplicateSet.swift` (FR-065)
-- [ ] T120 [US8] Build the duplicates view ranked by recoverable space in `Spacelyzer/Views/DuplicatesView.swift` (FR-064), offering the chosen copies for removal as one batch (FR-051) — the only place in the app that assembles a removal of several unrelated items, and so the only place that exercises the guard refusing some of a selection while the rest proceed, and a batch surviving individual failures. T111a records why it landed here rather than in the tree views
+- [X] T116 [US8] Implement the three-stage duplicate search — group by size, compare a bounded prefix hash, then full streamed SHA-256 — in `Spacelyzer/Analysis/DuplicateFinder.swift` (research R9)
+- [X] T117 [US8] Apply the 1 MB default size threshold from `Preferences`, adjustable down to zero, in `Spacelyzer/Analysis/DuplicateFinder.swift`
+- [X] T118 [US8] Report per-stage progress and check cancellation between files in `Spacelyzer/Analysis/DuplicateFinder.swift` (FR-066)
+- [X] T119 [US8] Enforce keep-one on `DuplicateSet` itself rather than in the view in `Spacelyzer/Models/DuplicateSet.swift` (FR-065)
+- [X] T120 [US8] Build the duplicates view ranked by recoverable space in `Spacelyzer/Views/DuplicatesView.swift` (FR-064), offering the chosen copies for removal as one batch (FR-051) — the only place in the app that assembles a removal of several unrelated items, and so the only place that exercises the guard refusing some of a selection while the rest proceed, and a batch surviving individual failures. T111a records why it landed here rather than in the tree views
 
 **Checkpoint**: All eight stories independently functional
 
@@ -340,7 +340,7 @@ differing contents do not group.
 - [X] T130 Write the project README describing what Spacelyzer is and how to build it — including what the tests do to the machine they run on, since the removal cases use the real Trash
 - [X] T131 Add continuous integration on GitHub's free macOS runners in `.github/workflows/ci.yml`, and commit a shared scheme so a fresh clone has one to build — the scheme had only ever existed in per-user state, which is ignored, so `xcodebuild -scheme` worked on the author's machine and nowhere else
 - [ ] T133 Fan the filter out across subtrees so SC-009's 200 ms budget is met at 1,000,000 items, in `Spacelyzer/Analysis/FilterEvaluator.swift` — 1.55 seconds became 0.65 by totalling the breakdown inside the walk that decides what matched, preparing the filter once instead of once per node, and building a path only for the twenty-four thousand nodes that keep one. What is left is the walk itself: totalling categories over the same million nodes with no filter and no paths costs 0.153 seconds, so nothing serial gets under that. Filtering is embarrassingly parallel across subtrees and the scan engine already fans out this way. Integer node identity, which this task used to call for, turned out not to be needed; a byte-wise ASCII name search was tried and was slower, and research R5 says why so it is not tried twice. Raised by T124
-- [ ] T132 Decide what the app does when its durable store will not open, in `Spacelyzer/SpacelyzerApp.swift` — it currently calls `fatalError`, so a corrupt store makes the app permanently unlaunchable, and nothing it holds is needed to scan a disk. Falling back to an in-memory container would keep the app usable, but silently: the history view would show an empty history and forget everything again on quit, which is a poor reading of Principle II's promise to keep a full record of removals. Worth doing properly, meaning the fallback plus a plain statement that nothing is being kept this session, rather than either half on its own. Found while verifying T121
+- [X] T132 Decide what the app does when its durable store will not open, in `Spacelyzer/SpacelyzerApp.swift` — done as described: `Storage.open` falls back to memory and hands back a warning the window shows, so the session works and says plainly that nothing is being kept. Found while verifying T121 and proved necessary an hour later by T117, where adding a preference without a default on the property left existing stores unmigratable and the `fatalError` behind it stopped the app launching at all, test runner included. The failing path is injectable so it is covered by a test rather than only by corrupting a real store
 
 ---
 
