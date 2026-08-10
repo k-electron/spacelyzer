@@ -28,25 +28,74 @@ nonisolated struct Filter: Sendable, Equatable {
     ///
     /// Size is tested against the cumulative figure so that "bigger than a gigabyte" surfaces the
     /// folders that are, which is usually what someone hunting for space means by it.
+    ///
+    /// Asking one item costs preparing the filter, which is the right trade for a single question
+    /// and the wrong one for a million. Anything walking a tree prepares once through
+    /// ``prepared()`` and asks that.
     func matches(_ item: ScannedItem) -> Bool {
-        let needle = text.trimmingCharacters(in: .whitespaces)
-        if !needle.isEmpty,
-           item.name.range(of: needle, options: .caseInsensitive) == nil {
-            return false
+        prepared().matches(item)
+    }
+
+    func prepared() -> Prepared { Prepared(self) }
+
+    /// The same conditions with everything that does not vary between items lifted out.
+    ///
+    /// Trimming the search text reads as free, and is, until it happens once per node: at a
+    /// million items it was a million strings allocated to arrive at the same answer every time.
+    nonisolated struct Prepared: Sendable {
+        /// Nil when no name condition is set, which is cheaper to test than an empty string and
+        /// says the same thing.
+        let needle: String?
+        let categories: Set<FileCategory>
+        let fileExtensions: Set<String>
+        let minimumSize: Int64?
+        let maximumSize: Int64?
+        let modifiedAfter: Date?
+        let modifiedBefore: Date?
+
+        init(_ filter: Filter) {
+            let trimmed = filter.text.trimmingCharacters(in: .whitespaces)
+            needle = trimmed.isEmpty ? nil : trimmed
+            categories = filter.categories
+            fileExtensions = filter.fileExtensions
+            minimumSize = filter.minimumSize
+            maximumSize = filter.maximumSize
+            modifiedAfter = filter.modifiedAfter
+            modifiedBefore = filter.modifiedBefore
         }
-        if !categories.isEmpty, !categories.contains(item.category) {
-            return false
+
+        func matches(_ item: ScannedItem) -> Bool {
+            if needle != nil, !contains(item.name) {
+                return false
+            }
+            if !categories.isEmpty, !categories.contains(item.category) {
+                return false
+            }
+            if !fileExtensions.isEmpty {
+                guard let suffix = Filter.fileExtension(of: item.name),
+                      fileExtensions.contains(suffix)
+                else { return false }
+            }
+            if let minimumSize, item.cumulativeSize < minimumSize { return false }
+            if let maximumSize, item.cumulativeSize > maximumSize { return false }
+            if let modifiedAfter, item.modified < modifiedAfter { return false }
+            if let modifiedBefore, item.modified > modifiedBefore { return false }
+            return true
         }
-        if !fileExtensions.isEmpty {
-            guard let suffix = Self.fileExtension(of: item.name),
-                  fileExtensions.contains(suffix)
-            else { return false }
+
+        /// Does this name contain the search text, ignoring case?
+        ///
+        /// Left to Foundation, which was measured against the obvious alternative and won. Both
+        /// sides are usually ASCII, where folding case is subtracting 32 from a byte, so a
+        /// hand-rolled search over the UTF-8 looked like an easy way past the Unicode machinery
+        /// for the common case. It made filtering a million items about a quarter slower:
+        /// `range(of:options:)` already has a fast path for short ASCII strings, and getting at
+        /// the bytes of a name short enough to live inside its own `String` means materialising a
+        /// buffer that was not there. Recorded here because it is a tempting change to make twice.
+        func contains(_ name: String) -> Bool {
+            guard let needle else { return true }
+            return name.range(of: needle, options: .caseInsensitive) != nil
         }
-        if let minimumSize, item.cumulativeSize < minimumSize { return false }
-        if let maximumSize, item.cumulativeSize > maximumSize { return false }
-        if let modifiedAfter, item.modified < modifiedAfter { return false }
-        if let modifiedBefore, item.modified > modifiedBefore { return false }
-        return true
     }
 
     /// Nil for a name with no extension, and for a dotfile, whose leading dot names the file

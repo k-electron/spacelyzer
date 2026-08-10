@@ -9,6 +9,8 @@ nonisolated struct FilterResult: Sendable, Equatable {
     let matchCount: Int
     /// What the matches occupy together, counted once.
     let combinedSize: Int64
+    /// The categories the matched subset falls into, totalled during the same walk that found it.
+    let breakdown: [CategoryTotal]
 
     var isEmpty: Bool { matchCount == 0 }
 }
@@ -20,42 +22,64 @@ nonisolated struct FilterResult: Sendable, Equatable {
 nonisolated struct FilterEvaluator: Sendable {
 
     func evaluate(_ filter: Filter, over root: ScannedItem, rootPath: String) -> FilterResult {
+        let prepared = filter.prepared()
         var matches: Set<String> = []
         var retained: Set<String> = []
         var combinedSize: Int64 = 0
+        var tally = CategoryTally()
+
+        // The names on the way down to the node being visited. Identity here is the full path, and
+        // building one at every node to arrive at a set holding a fiftieth of them was the whole
+        // cost of applying a filter: a million strings allocated and hashed to keep twenty
+        // thousand. Held as a trail, a path costs nothing until something needs to remember it.
+        var trail: [String] = []
+
+        func path() -> String {
+            var result = rootPath
+            for name in trail { result += "/" + name }
+            return result
+        }
 
         @discardableResult
-        func walk(_ item: ScannedItem, path: String, insideMatch: Bool) -> Bool {
-            let selfMatches = filter.matches(item)
-            if selfMatches {
-                matches.insert(path)
+        func walk(_ item: ScannedItem, insideMatch: Bool) -> Bool {
+            let selfMatches = prepared.matches(item)
+            let here = selfMatches ? path() : nil
+
+            if let here {
+                matches.insert(here)
                 // Only when no ancestor already matched. A folder and the files inside it can
                 // both satisfy the same condition, and adding both would report the same bytes
                 // twice.
                 if !insideMatch { combinedSize += item.cumulativeSize }
             }
 
+            // A node counts towards the breakdown when it matched or when it sits inside something
+            // that did — matching a folder means asking what is in it, and counting only the
+            // folder itself would report nothing, since a folder holds no bytes of its own.
+            let inside = insideMatch || selfMatches
+            if inside { tally.add(item) }
+
             var descendantMatched = false
             for child in item.children {
-                let childMatched = walk(
-                    child,
-                    path: path + "/" + child.name,
-                    insideMatch: insideMatch || selfMatches
-                )
+                trail.append(child.name)
+                let childMatched = walk(child, insideMatch: inside)
+                trail.removeLast()
                 descendantMatched = descendantMatched || childMatched
             }
 
-            if selfMatches || descendantMatched { retained.insert(path) }
-            return selfMatches || descendantMatched
+            guard selfMatches || descendantMatched else { return false }
+            retained.insert(here ?? path())
+            return true
         }
 
-        walk(root, path: rootPath, insideMatch: false)
+        walk(root, insideMatch: false)
 
         return FilterResult(
             matches: matches,
             retained: retained,
             matchCount: matches.count,
-            combinedSize: combinedSize
+            combinedSize: combinedSize,
+            breakdown: tally.totals()
         )
     }
 }

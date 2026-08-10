@@ -217,6 +217,42 @@ struct FilterEvaluatorTests {
         #expect(band.matches(file("huge.bin", 50_000_000)) == false)
     }
 
+    @Test("Name matching answers exactly what a Unicode-aware search would")
+    func nameMatchingIsUnicodeCorrect() {
+        // A filter tests a name once per node, which at a million nodes makes hand-rolling a
+        // byte-wise ASCII search tempting. It was tried, and it was slower — but the next person
+        // to try it will not know that until they have written it, so this pins what the answer
+        // has to be. The interesting rows are the last four, where folding case is not a matter
+        // of subtracting 32 from a byte.
+        let cases: [(needle: String, name: String)] = [
+            ("report", "Quarterly Report.pdf"),      // differing case, both ASCII
+            ("REPORT", "quarterly report.pdf"),      // the other way round
+            ("report", "reprot.pdf"),                // near miss
+            ("pdf", "pdf"),                          // whole name
+            ("quarterly report", "report.pdf"),      // search longer than the name
+            ("", "anything.txt"),                    // no condition at all
+            ("café", "Le Café.txt"),                 // needle outside ASCII
+            ("cafe", "Le Café.txt"),                 // name outside ASCII
+            ("ß", "Straße.txt"),                     // folding that expands
+            ("STRASSE", "Straße.txt"),               // and the case the shortcut must not answer
+            ("日本", "日本語.txt"),                     // no ASCII anywhere
+        ]
+
+        for (needle, name) in cases {
+            var filter = Filter()
+            filter.text = needle
+            let item = file(name, 1)
+
+            let general = needle.isEmpty
+                || name.range(of: needle, options: .caseInsensitive) != nil
+            #expect(
+                filter.prepared().contains(name) == general,
+                "‘\(needle)’ in ‘\(name)’"
+            )
+            #expect(filter.matches(item) == general, "‘\(needle)’ in ‘\(name)’")
+        }
+    }
+
     @Test("A date range reads as a range rather than as two loose ends")
     func dateRangeIsDescribedAsOne() {
         var between = Filter()
@@ -248,7 +284,7 @@ struct CategoryAnalyzerTests {
 
     @Test("Totals reconcile with the scan and rank by size")
     func totalsReconcileAndRank() throws {
-        let breakdown = CategoryAnalyzer().breakdown(of: tree, rootPath: "/scan")
+        let breakdown = CategoryAnalyzer().breakdown(of: tree)
 
         // Own sizes add up to what the scan measured; cumulative ones would count folders twice.
         #expect(breakdown.reduce(0) { $0 + $1.bytes } == tree.cumulativeSize)
@@ -263,7 +299,7 @@ struct CategoryAnalyzerTests {
 
     @Test("Folders contribute nothing of their own")
     func foldersDoNotAppear() {
-        let breakdown = CategoryAnalyzer().breakdown(of: tree, rootPath: "/scan")
+        let breakdown = CategoryAnalyzer().breakdown(of: tree)
 
         // Directories carry no size of their own, so a Folders row would always read zero.
         #expect(breakdown.contains { $0.category == .folder } == false)
@@ -271,7 +307,7 @@ struct CategoryAnalyzerTests {
 
     @Test("Counts are per item, not per byte")
     func itemCountsAreCorrect() throws {
-        let breakdown = CategoryAnalyzer().breakdown(of: tree, rootPath: "/scan")
+        let breakdown = CategoryAnalyzer().breakdown(of: tree)
         let images = try #require(breakdown.first { $0.category == .image })
 
         #expect(images.itemCount == 2)
@@ -282,11 +318,9 @@ struct CategoryAnalyzerTests {
     func filteredBreakdownIsSelfContained() {
         var filter = Filter()
         filter.categories = [.image]
-        let result = FilterEvaluator().evaluate(filter, over: tree, rootPath: "/scan")
-
-        let breakdown = CategoryAnalyzer().breakdown(
-            of: tree, rootPath: "/scan", matching: result.matches
-        )
+        // Produced by the filter rather than by a second walk asking the same question of the
+        // same tree, which is where a fifth of a second went at a million items.
+        let breakdown = FilterEvaluator().evaluate(filter, over: tree, rootPath: "/scan").breakdown
 
         #expect(breakdown.count == 1)
         #expect(breakdown[0].category == .image)
@@ -299,10 +333,7 @@ struct CategoryAnalyzerTests {
         var filter = Filter()
         filter.text = "photos"
         let result = FilterEvaluator().evaluate(filter, over: tree, rootPath: "/scan")
-
-        let breakdown = CategoryAnalyzer().breakdown(
-            of: tree, rootPath: "/scan", matching: result.matches
-        )
+        let breakdown = result.breakdown
 
         // Only the folder matched, and a folder holds no bytes of its own. Counting just the
         // match would report nothing and contradict the size the filter reports.
@@ -317,7 +348,7 @@ struct CategoryAnalyzerTests {
         alias.countedElsewhere = true
         let subject = folder("root", children: [file("real.zip", 10_000, category: .archive), alias])
 
-        let breakdown = CategoryAnalyzer().breakdown(of: subject, rootPath: "/scan")
+        let breakdown = CategoryAnalyzer().breakdown(of: subject)
 
         #expect(breakdown.count == 1)
         #expect(breakdown[0].bytes == 10_000)

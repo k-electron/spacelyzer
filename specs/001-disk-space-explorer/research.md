@@ -238,18 +238,45 @@ built once per layout, so pointing at a million items costs the same as pointing
 Laying the treemap out takes 2.6 s at a million, which no criterion budgets — it happens off the
 main actor behind an indicator, and only 4,002 rectangles survive the minimum drawable area.
 
-**What is actually slow is not where the results live.** Applying a filter splits almost exactly in
+**What is actually slow is not where the results live.** Applying a filter split almost exactly in
 half: 0.78 s to evaluate and 0.77 s to produce the category breakdown, two separate walks of the
-same tree. Both build a fresh `path + "/" + child.name` string at every node, because identity in
-`FilterResult` is the path — so a filter change allocates two million strings and hashes them into
-and against `Set<String>`, and the size of the tree is beside the point. Reopening the storage
-question on this evidence would send the next person to rewrite the wrong layer.
+same tree. Both built a fresh `path + "/" + child.name` string at every node, because identity in
+`FilterResult` is the path — so a filter change allocated two million strings and hashed them into
+and against `Set<String>`, and the size of the tree was beside the point. Reopening the storage
+question on that evidence would have sent the next person to rewrite the wrong layer.
 
-The narrower reading, and the one the numbers support: give nodes a stable integer identity
-assigned during traversal, key `matches` and `retained` by that, and the walks stop allocating.
-Merging the breakdown into the evaluator's walk halves what remains. Neither touches where scan
-results live. Whether that reaches 200 ms is unmeasured and should not be assumed — but it is the
-change to measure first, and the value tree stays until something says otherwise.
+**What was done about it, and what it bought.** Three changes, measured one at a time:
+
+| | Measured |
+|---|---|
+| As found | 1.55 s |
+| Breakdown totalled during the walk that decides what matched, instead of by a second walk | |
+| Search text trimmed once per filter instead of once per node | |
+| Paths built only for the nodes that keep one, from a trail of names carried down | **0.65 s** |
+
+Together a little under two and a half times faster, and none of it touched where scan results
+live. Identity is still the path, because it turned out not to need replacing: a filter matching
+2% of a million nodes keeps twenty-four thousand paths, and building only those costs nothing
+worth measuring. The integer identity this section previously called for would have been a larger
+change for the same effect.
+
+**And one that did not pay, recorded so it is not tried twice.** Name matching goes through
+`range(of:options:.caseInsensitive)` once per node, which is Unicode-correct and looked like the
+obvious next target: both the search text and most filenames are ASCII, where folding case is
+subtracting 32 from a byte. Hand-rolling that search made filtering about a quarter *slower*.
+Foundation already has a fast path for short ASCII strings, and reaching the bytes of a name short
+enough to live inside its own `String` means materialising a buffer that was not otherwise there —
+`withContiguousStorageIfAvailable` declines outright for those, and `withUTF8` has to build one.
+`SpacelyzerTests/FilterEvaluatorTests.swift` pins the semantics either way.
+
+**SC-009 is still missed, at roughly three times its budget rather than eight.** The remaining
+cost is the walk itself rather than anything in it. A walk of the same million nodes that only
+totals categories — no filter, no paths — takes 0.153 s, which is the floor for anything done
+serially, and the filtered walk is about four times that. The next step is therefore not a cheaper
+node but more of them at once: filtering is embarrassingly parallel across subtrees, each
+producing partial matches, retained paths, and tallies that merge, and the scan engine already
+fans out over a `TaskGroup` exactly this way. Sixteen cores against a 0.65 s serial walk is the
+first thing that could plausibly clear 200 ms, and it is unmeasured. Tracked as T133.
 
 SC-002 deserves a footnote rather than a tick. First progress arrives in 100 ms, which is the
 configured progress interval rather than a measure of anything, and what appears at that moment is

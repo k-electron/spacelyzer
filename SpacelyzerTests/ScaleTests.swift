@@ -95,28 +95,28 @@ struct ScaleTests {
         let tree = scan.root
 
         // SC-009 is written as both views updating, and both read one result, so what has to fit
-        // inside 200 ms is the whole of what a filter change commissions: the evaluation and the
-        // category breakdown that goes with it. Timed apart as well as together, because a number
-        // that misses its budget is only useful alongside where it went.
+        // inside 200 ms is the whole of what a filter change commissions. That is now a single
+        // walk: the category breakdown is totalled by the same pass that decides what matched.
         //
         // The text matches a real slice of the tree rather than nothing. A filter matching nothing
         // still walks every node, so it looks like a fair measurement, but it never builds the
-        // retained set and hands the breakdown an empty match set — so it reports a floor rather
-        // than a cost anybody would experience.
+        // retained set — so it reports a floor rather than a cost anybody would experience.
         var filter = Filter()
         filter.text = "f12"
         let evaluator = FilterEvaluator()
-        let analyzer = CategoryAnalyzer()
 
         var result: FilterResult?
-        let evaluating = clock.measure {
+        let filtering = clock.measure {
             result = evaluator.evaluate(filter, over: tree, rootPath: rootPath)
         }
         let matched = try #require(result)
+
+        // The breakdown of a whole scan, which is the other thing that walks everything. Not
+        // budgeted by SC-009 — it runs once when a scan finishes rather than on every keystroke —
+        // but it is the same walk without the filtering, so it says what the floor costs.
         let summarising = clock.measure {
-            _ = analyzer.breakdown(of: tree, rootPath: rootPath, matching: matched.matches)
+            _ = CategoryAnalyzer().breakdown(of: tree)
         }
-        let filtering = evaluating + summarising
 
         // Laying the treemap out is not what SC-005 budgets — it happens once per view change,
         // off the main actor, behind an indicator — but it is the cost that would make the picture
@@ -144,10 +144,9 @@ struct ScaleTests {
             === T124 · filtering and pointing at 1,000,000 items (SC-005, SC-009) ===
             nodes measured     : \(tree.itemCount)
             rectangles drawn   : \(layout.nodes.count)
-            filter evaluation  : \(evaluating)
-            category breakdown : \(summarising)
-            the two together   : \(filtering)        budget 200ms (SC-009)
+            filter, with its breakdown: \(filtering)  budget 200ms (SC-009)
             matches            : \(matched.matchCount)
+            unfiltered breakdown: \(summarising)      not budgeted, runs once per scan
             treemap layout     : \(laying)           not budgeted, indicated instead
             hit test, \(probes.count) points: \(pointing)
             hit test, per point: \(perProbe)         budget 100ms (SC-005)

@@ -83,13 +83,13 @@ final class FilterCoordinator {
             defer { self.activity.end() }
 
             let computed = await Task.detached(priority: .userInitiated) {
-                let result = filter.isEmpty
-                    ? nil
-                    : evaluator.evaluate(filter, over: root, rootPath: path)
-                let breakdown = analyzer.breakdown(
-                    of: root, rootPath: path, matching: result?.matches
-                )
-                return (result, breakdown)
+                // With a filter in force the breakdown falls out of the walk that answered it.
+                // Without one there is nothing to narrow, and the analyser needs no paths at all.
+                guard !filter.isEmpty else {
+                    return (FilterResult?.none, analyzer.breakdown(of: root))
+                }
+                let result = evaluator.evaluate(filter, over: root, rootPath: path)
+                return (result, result.breakdown)
             }.value
 
             guard !Task.isCancelled else { return }
