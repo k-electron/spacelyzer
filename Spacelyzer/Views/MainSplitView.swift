@@ -5,6 +5,11 @@ import SwiftUI
 /// (FR-026). The treemap itself arrives in User Story 3; until then the trailing side says so
 /// rather than presenting an unexplained empty pane.
 struct MainSplitView: View {
+    /// Set when the durable store would not open and nothing is being kept this session. Shown
+    /// rather than swallowed, because a history that silently forgets is worse than one that says
+    /// it is not being written (Principle II).
+    var storageWarning: String?
+
     @Environment(\.modelContext) private var modelContext
     @State private var controller = ScanController()
     @State private var broker = AccessBroker()
@@ -29,6 +34,7 @@ struct MainSplitView: View {
     /// The list in force when the displayed result was produced, so a later change to it can be
     /// recognised as making that result stale rather than merely old (FR-013).
     @State private var scannedWithExclusions: [URL] = []
+    @State private var dismissedStorageWarning = false
 
     private let formatter = SizeFormatter()
 
@@ -299,6 +305,14 @@ struct MainSplitView: View {
     private var leadingPane: some View {
         VStack(spacing: 0) {
             locationHeader
+
+            if let storageWarning, !dismissedStorageWarning {
+                StorageWarningBanner(
+                    message: storageWarning,
+                    onDismiss: { dismissedStorageWarning = true }
+                )
+                .padding(8)
+            }
 
             // In the pane, never over the window. A modal that locks everything until removal
             // finishes would block the control that stops it (FR-071, Principle III).

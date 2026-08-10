@@ -39,6 +39,37 @@ struct AccessWarningView: View {
 }
 
 /// Offers the rescan that newly granted access makes worthwhile (FR-019).
+/// Says that this session is not being recorded, when the durable store would not open.
+///
+/// Dismissible, because it is a statement rather than a question and repeating it in front of the
+/// results all session would be its own nuisance. Nothing here offers a repair: what is wrong is
+/// on disk, and inventing a button that deletes the user's history to fix a loading error would
+/// be exactly the sort of destructive helpfulness Principle II forbids.
+struct StorageWarningBanner: View {
+    let message: String
+    let onDismiss: () -> Void
+
+    var body: some View {
+        HStack(alignment: .top, spacing: 10) {
+            Image(systemName: "externaldrive.trianglebadge.exclamationmark")
+                .foregroundStyle(.orange)
+            Text(message)
+                .font(.callout)
+                .fixedSize(horizontal: false, vertical: true)
+            Spacer(minLength: 8)
+            Button {
+                onDismiss()
+            } label: {
+                Image(systemName: "xmark.circle.fill").foregroundStyle(.tertiary)
+            }
+            .buttonStyle(.plain)
+            .help("Dismiss")
+        }
+        .padding(10)
+        .background(.quaternary.opacity(0.4), in: .rect(cornerRadius: 8))
+    }
+}
+
 struct AccessGrantedBanner: View {
     let onRescan: () -> Void
     let onDismiss: () -> Void

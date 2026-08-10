@@ -48,4 +48,45 @@ struct PreferencesTests {
         #expect(options.contains(.light))
         #expect(options.allSatisfy { !$0.label.isEmpty && !$0.symbol.isEmpty })
     }
+
+    @Test("The duplicate threshold survives a round trip and can be turned off")
+    func duplicateThresholdIsAdjustable() throws {
+        let context = try makeContext()
+
+        #expect(Preferences.current(in: context).duplicateSizeThreshold == 1_000_000)
+
+        Preferences.current(in: context).duplicateSizeThreshold = 0
+        #expect(Preferences.current(in: context).duplicateSizeThreshold == 0)
+    }
+}
+
+@MainActor
+@Suite("Opening the store")
+struct StorageTests {
+
+    @Test("A store that will not open costs the records, not the app")
+    func aBadStoreFallsBackToMemory() throws {
+        struct Unopenable: Error {}
+
+        let opened = Storage.open(openDurable: { throw Unopenable() })
+
+        // The whole point of T132: this used to be `fatalError`, so a store that would not open
+        // was an app that would not launch, permanently, over records that no part of measuring
+        // a disk needs.
+        let warning = try #require(opened.warning, "a session that keeps nothing must say so")
+        #expect(warning.contains("cannot be saved"))
+
+        // And the fallback is a working container, not a placeholder — scanning, removing, and
+        // undoing all still have somewhere to put their state for the session.
+        let context = ModelContext(opened.container)
+        let preferences = Preferences.current(in: context)
+        preferences.duplicateSizeThreshold = 42
+        #expect(Preferences.current(in: context).duplicateSizeThreshold == 42)
+    }
+
+    @Test("A store that opens says nothing")
+    func aGoodStoreIsQuiet() throws {
+        let opened = Storage.open(openDurable: { try Storage.makeContainer(inMemory: true) })
+        #expect(opened.warning == nil)
+    }
 }

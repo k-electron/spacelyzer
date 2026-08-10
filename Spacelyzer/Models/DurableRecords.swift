@@ -68,11 +68,29 @@ nonisolated enum AppearancePreference: Int, Codable, CaseIterable, Sendable {
 final class Preferences {
     var sizeUnitConvention: SizeUnitConvention
     var appearance: AppearancePreference
+    /// Files smaller than this are left out of duplicate detection (research R9).
+    ///
+    /// A megabyte by default, because finding a thousand identical empty files is true and no
+    /// help. Adjustable down to zero for anyone who disagrees, which is why it is a preference
+    /// rather than a constant.
+    ///
+    /// The default belongs on the property and not only in `init`. Written the other way, the
+    /// attribute reaches the store with no default of its own, and a store written before this
+    /// existed cannot be migrated in place: every existing row fails validation for want of a
+    /// value, the container refuses to load, and the app does not start.
+    var duplicateSizeThreshold: Int64 = Preferences.defaultDuplicateSizeThreshold
 
-    init(sizeUnitConvention: SizeUnitConvention = .decimal, appearance: AppearancePreference = .system) {
+    init(
+        sizeUnitConvention: SizeUnitConvention = .decimal,
+        appearance: AppearancePreference = .system,
+        duplicateSizeThreshold: Int64 = Preferences.defaultDuplicateSizeThreshold
+    ) {
         self.sizeUnitConvention = sizeUnitConvention
         self.appearance = appearance
+        self.duplicateSizeThreshold = duplicateSizeThreshold
     }
+
+    static let defaultDuplicateSizeThreshold: Int64 = 1_000_000
 
     /// There is exactly one preferences record. Fetching creates it on first launch rather than
     /// leaving every call site to cope with its absence.
