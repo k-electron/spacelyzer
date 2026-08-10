@@ -56,6 +56,31 @@ struct ActivityIndicatorTests {
         #expect(indicator.isVisible == false)
     }
 
+    @Test("Every indicator the window builds reveals itself inside the promised 150 ms")
+    func indicatorsMeetThePromisedThreshold() {
+        // SC-017 is a promise about the whole app, not about one indicator, so it is asserted
+        // against the ones actually wired up. A new coordinator given a slacker threshold fails
+        // here rather than surviving until someone thinks to sit and watch for it.
+        let promised = Duration.milliseconds(150)
+        let scan = ScanController()
+
+        #expect(scan.activity.delay <= promised)
+        #expect(scan.accountingActivity.delay <= promised)
+        #expect(FilterCoordinator().activity.delay <= promised)
+        #expect(LayoutCoordinator().activity.delay <= promised)
+    }
+
+    @Test("The preview's indicator outlasts the wait it reports on, which is the point of it")
+    func previewIndicatorOutlastsTheSettlingTime() {
+        // The one indicator deliberately slower than the rest. Quick Look is not asked for
+        // anything until the selection has held still, so an indicator on the same threshold
+        // would appear and vanish on every click without ever reporting real work. The click
+        // itself is still answered well inside the budget — the selection moves in both views and
+        // the facts land as soon as the tree walk returns — so what waits here is the spinner over
+        // the preview, not the window's response to being clicked.
+        #expect(ItemInspector().activity.delay > ItemInspector.previewSettleTime)
+    }
+
     /// Budgeted in polls rather than elapsed time on purpose. Several suites in this target hold
     /// the main actor for seconds at a stretch building SwiftData containers, and a wall-clock
     /// deadline expires during that wait without the loop ever getting a turn to look. Counting

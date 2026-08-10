@@ -24,13 +24,18 @@ Principle II load-bearing in a way they were not before.
 
 ## Technical Context
 
-**Language/Version**: Swift, Swift 6 language mode. The project is currently configured for Swift
-5.0 with approachable concurrency enabled; moving to Swift 6 is a required build-setting change
-recorded in [research.md](./research.md) R8.
+**Language/Version**: Swift 6 language mode, with approachable concurrency enabled.
+`SWIFT_VERSION` was moved from 5.0 during implementation, closing the change recorded in
+[research.md](./research.md) R8.
 
 **Primary Dependencies**: None outside the platform SDK. SwiftUI, SwiftData, Foundation, AppKit
-interop, QuickLookUI, UniformTypeIdentifiers, CryptoKit, and OSLog. Zero third-party packages are
-planned, so Principle VI's license, reputation, and version obligations do not yet apply.
+interop, QuickLookUI, and UniformTypeIdentifiers. CryptoKit joins them with duplicate detection.
+Zero third-party packages are planned, so Principle VI's license, reputation, and version
+obligations do not yet apply.
+
+OSLog was listed here and is not used. Nothing in the app logs anything, which turned out to be a
+stronger position than logging with paths marked private, and is recorded as such under Principle I
+below.
 
 **Storage**: SwiftData for durable records — exclusion rules, recent locations, removal history,
 and preferences. Scan results are the value tree the engine produces, held for the session and
@@ -72,7 +77,7 @@ Working set up to roughly 1,000,000 nodes per scan.
 
 | Principle | Status | Basis |
 |---|---|---|
-| I. Local-First and Private by Default (NON-NEGOTIABLE) | Pass | No feature needs the network, no networking code is planned, and nothing about the user's files leaves the machine. Without the sandbox there is no operating-system enforcement, and v2.1.0 deliberately declined to add build-time policing in its place; this rests on the commitment not to build such a feature. Logging goes through OSLog with paths marked private. |
+| I. Local-First and Private by Default (NON-NEGOTIABLE) | Pass | No feature needs the network, no networking code is planned, and nothing about the user's files leaves the machine. Without the sandbox there is no operating-system enforcement, and v2.1.0 deliberately declined to add build-time policing in its place; this rests on the commitment not to build such a feature. The plan called for logging through OSLog with paths marked private; the app ended up logging nothing at all, so no path is written anywhere outside the window displaying it. |
 | II. Destructive Actions Are Guarded (NON-NEGOTIABLE) | Pass | Removal is explicit-selection only, previewed before it runs, routed to the Trash by default, refused for protected locations before the confirmation appears, cancellable, and reversible for the most recent batch. The guards live in `RemovalGuard` and `DuplicateSet` rather than in any view, satisfying v2.0.0's requirement that no interface change can route around them. |
 | III. Never Block, Always Show Progress | Pass | Traversal, hashing, filtering, layout, and removal all run off the main actor, and scan cancellation is checked at every directory batch boundary. FR-069 through FR-071 now carry the visibility and non-blocking obligations, and SC-017 makes them measurable. |
 | IV. Verified Before Merge | Pass | Scan, accounting, layout, filter, and removal-guard logic are unit-testable against fixture trees; no test touches a real home directory. |
@@ -152,11 +157,15 @@ The sandbox change was verified against the signed product rather than the build
 configuration carries the sandbox entitlement, Hardened Runtime remains on, and both Debug and
 Release build clean.
 
-All four gate items are now closed or withdrawn. The storage question closed by choosing SwiftData
-throughout rather than by measuring an alternative, which is the compliant default and removes the
-custom node store, the hand-rolled filter index, and the benchmark along with it. The performance
-risk that decision accepts is stated in research R5 rather than hidden: a million model objects may
-not reach SC-005 or SC-009, and no revisit trigger is pre-committed. Implementation may begin.
+All four gate items are now closed or withdrawn. Implementation may begin.
+
+The storage question closed twice. It closed first by choosing SwiftData throughout rather than by
+measuring an alternative, which is the compliant default, and this paragraph recorded the risk that
+choice accepted: that a million model objects might not reach SC-005 or SC-009. It reopened when
+the risk arrived at a twentieth of that scale, and closed again on the benchmark in research R5.
+Scan results are the value tree the engine produces; SwiftData keeps the durable records. Gate item
+2 above states the outcome — this note is kept because a plan that quietly rewrites the prediction
+it got wrong is worth less than one that leaves it visible.
 
 ## Project Structure
 
@@ -191,7 +200,7 @@ Spacelyzer/
 ├── Cleanup/                     # Trash removal, undo, protected-path guards, history
 ├── Models/                      # SwiftData records and in-memory value types
 ├── Views/                       # SwiftUI views for outline, treemap, inspector, dialogs
-└── Support/                     # Logging, size formatting, unit conventions
+└── Support/                     # Activity indication, size formatting, file categories
 
 SpacelyzerTests/                 # Swift Testing, fixture-tree based
 └── Fixtures/                    # Builders that construct temporary trees on demand
@@ -202,7 +211,9 @@ SpacelyzerUITests/               # XCUITest coverage of the primary flows
 **Structure Decision**: A single app target with folders grouped by capability rather than by
 technical layer, because the capabilities in this feature are largely independent of one another
 and each maps to a user story: `Scanning` and `Accounting` serve stories 1 and 2, `Treemap` serves
-story 3, `Analysis` serves story 5, and `Cleanup` serves stories 6 and 7. This keeps a story's code
+story 3, `Analysis` serves stories 5 and 8, and `Cleanup` serves story 7. Story 6 is the exception
+and lives in `Views`, because inspecting something is reading what the scan already knows and
+asking the system to draw it, with no logic of its own to keep out of SwiftUI. This keeps a story's code
 in one place and keeps the pure logic — traversal, layout, filtering, guard evaluation — free of
 SwiftUI so it can be tested against fixture trees without a running interface, as Principle IV
 requires.
@@ -215,6 +226,9 @@ as part of the first implementation task.
 
 > Empty. The Constitution Check records no violations to justify.
 
-The one entry this section previously carried — holding scan results outside SwiftData — was
-withdrawn when the storage decision settled on SwiftData throughout. Following a principle's stated
-default needs no justification, so there is nothing to track here.
+This section once carried a single entry — holding scan results outside SwiftData — which was
+withdrawn when the storage decision settled on SwiftData throughout, on the grounds that following
+a principle's stated default needs no justification. The measurement in research R5 then put scan
+results back outside SwiftData, and the entry stayed withdrawn: Principle V permits the deviation
+on exactly the evidence R5 records, so there is no unjustified complexity to track. What would
+belong here is a deviation without a measurement behind it.
