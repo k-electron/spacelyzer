@@ -202,8 +202,9 @@ and that the reported path, size, and dates match the real file.
 
 ### User Story 7 - Reclaim space without losing anything important (Priority: P7)
 
-Having found the offenders, the user wants to remove them. They select one or more items from
-either view, review exactly what is about to happen, and confirm. Nothing disappears without them
+Having found the offenders, the user wants to remove them. They select what should go — an item in
+either view, or several at once where a view offers a set to choose among — review exactly what is
+about to happen, and confirm. Nothing disappears without them
 having seen the list first, anything removed can be brought back, and if they change their mind
 immediately they can undo the whole batch.
 
@@ -232,6 +233,10 @@ original locations.
    Trash, **Then** they are warned explicitly that it cannot be undone and must confirm separately.
 6. **Given** a completed removal to the Trash, **When** the user undoes it, **Then** the items
    return to their original locations and both views update to reflect this.
+
+Scenarios 3 and 4 need a selection holding several items, which under FR-051 is assembled in a
+duplicates set rather than in the outline or the treemap; they are demonstrated there. The guard
+and the batch beneath them do not wait on that view and are covered directly by unit tests.
 7. **Given** the Trash has been emptied since a removal, **When** the user attempts to undo it,
    **Then** the app explains that undo is no longer possible rather than reporting a success that
    did not happen.
@@ -447,8 +452,14 @@ and that the app refuses any action that would delete every copy.
 
 **Reclaiming space**
 
-- **FR-051**: Users MUST be able to select one or more items from either view and request their
-  removal.
+- **FR-051**: Users MUST be able to request the removal of what is selected, from either view, and
+  a view that presents items as a set to choose among MUST be able to offer several of them for
+  removal at once. This once asked for selecting several items in the outline and the treemap,
+  and was narrowed rather than met. Those two views share one selection by FR-035 and a folder
+  already stands for everything beneath it, so what single selection cannot express is a batch of
+  unrelated items — and the place that needs one is a duplicate set, where choosing which copies
+  go is the whole interaction. Removal itself was built for any number throughout, so the
+  narrowing is to where a batch is assembled rather than to what may be removed.
 - **FR-052**: Before anything is removed, the system MUST present a confirmation listing the
   affected items, their count, and the total space to be reclaimed.
 - **FR-053**: Removal MUST place items in the Trash by default so that they remain recoverable.
